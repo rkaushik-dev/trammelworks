@@ -3,11 +3,19 @@ package io.github.rkaushikdev.trammelworks.cli;
 import io.github.rkaushikdev.trammelworks.ConfigFile;
 import io.github.rkaushikdev.trammelworks.SiteConfig;
 import io.github.rkaushikdev.trammelworks.StanchionError;
+import io.github.rkaushikdev.trammelworks.SystemClock;
 import io.github.rkaushikdev.trammelworks.archive.ArchiveDb;
 import io.github.rkaushikdev.trammelworks.archive.Schema;
+import io.github.rkaushikdev.trammelworks.query.Cursor;
+import io.github.rkaushikdev.trammelworks.query.Execute;
+import io.github.rkaushikdev.trammelworks.query.Parser;
+import io.github.rkaushikdev.trammelworks.query.Query;
+import io.github.rkaushikdev.trammelworks.query.SearchResult;
 import java.io.InputStream;
 import java.io.PrintWriter;
 import java.nio.file.Path;
+import java.util.Optional;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
@@ -135,6 +143,29 @@ public final class CliContext {
         ArchiveDb connection =
                 reporting(() -> Schema.openArchive(config.archive().file(), true));
         return new ReadArchive(config, connection);
+    }
+
+    /** A filter typed on the command line, its relative times measured from now. */
+    public Query filter(String text) {
+        return reporting(() -> Parser.parseQuery(text, new SystemClock().now()));
+    }
+
+    /** Run {@code work} against the archive opened read only, and let go of it afterwards. */
+    public <T> T withArchive(String doing, Function<ArchiveDb, T> work) {
+        ReadArchive opened = readingArchive(doing);
+        try (ArchiveDb connection = opened.connection()) {
+            return reporting(() -> work.apply(connection));
+        }
+    }
+
+    /** A first page of a search, under the default ceiling. */
+    public SearchResult search(String doing, Query query) {
+        return search(doing, query, Execute.DEFAULT_SCAN_CEILING, Optional.empty());
+    }
+
+    /** A page of a search, under {@code ceiling}, resuming after {@code after}. */
+    public SearchResult search(String doing, Query query, int ceiling, Optional<Cursor> after) {
+        return withArchive(doing, connection -> Execute.search(connection, query, ceiling, after));
     }
 
     /**

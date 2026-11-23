@@ -31,6 +31,7 @@ import picocli.CommandLine.ParentCommand;
         subcommands = {
             Cli.ConfigCommand.class,
             Cli.VersionCommand.class,
+            AlarmsCommand.class,
             BackfillCommand.class,
             ClockCommand.class,
             CountCommand.class,

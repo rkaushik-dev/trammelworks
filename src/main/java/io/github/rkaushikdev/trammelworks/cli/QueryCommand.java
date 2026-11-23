@@ -1,11 +1,8 @@
 package io.github.rkaushikdev.trammelworks.cli;
 
-import io.github.rkaushikdev.trammelworks.SystemClock;
-import io.github.rkaushikdev.trammelworks.archive.ArchiveDb;
 import io.github.rkaushikdev.trammelworks.archive.StoredRecord;
 import io.github.rkaushikdev.trammelworks.query.Cursor;
 import io.github.rkaushikdev.trammelworks.query.Execute;
-import io.github.rkaushikdev.trammelworks.query.Parser;
 import io.github.rkaushikdev.trammelworks.query.Query;
 import io.github.rkaushikdev.trammelworks.query.SearchResult;
 import java.util.Optional;
@@ -68,19 +65,13 @@ final class QueryCommand implements Callable<Integer> {
     @Override
     public Integer call() {
         CliContext context = root.context();
-        Query query = context.reporting(() -> Parser.parseQuery(filterText, new SystemClock().now()));
+        Query query = context.filter(filterText);
         if (showPlan) {
             context.warn(Execute.explain(query));
         }
-        CliContext.ReadArchive opened = context.readingArchive("query");
-        SearchResult found;
-        try (ArchiveDb connection = opened.connection()) {
-            found = context.reporting(() -> Execute.search(
-                    connection,
-                    query,
-                    ceiling,
-                    after.isEmpty() ? Optional.empty() : Optional.of(Cursor.parseCursor(after))));
-        }
+        Optional<Cursor> resume =
+                after.isEmpty() ? Optional.empty() : Optional.of(context.reporting(() -> Cursor.parseCursor(after)));
+        SearchResult found = context.search("query", query, ceiling, resume);
         if (countOnly) {
             context.echo(found.count());
         } else {

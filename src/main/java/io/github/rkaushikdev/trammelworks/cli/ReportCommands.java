@@ -8,8 +8,6 @@ import io.github.rkaushikdev.trammelworks.archive.ArchiveDb;
 import io.github.rkaushikdev.trammelworks.archive.ArchiveSettings;
 import io.github.rkaushikdev.trammelworks.archive.Repository;
 import io.github.rkaushikdev.trammelworks.archive.Schema;
-import io.github.rkaushikdev.trammelworks.query.Execute;
-import io.github.rkaushikdev.trammelworks.query.Parser;
 import io.github.rkaushikdev.trammelworks.query.Query;
 import io.github.rkaushikdev.trammelworks.query.SearchResult;
 import io.github.rkaushikdev.trammelworks.report.Render;
@@ -75,12 +73,8 @@ final class ReportCommands {
             CliContext context = root.context();
             RenderOptions options = context.reporting(
                     () -> new RenderOptions(ReportFormat.parse(formatName), width, !noHeader, rawTime));
-            Query query = context.reporting(() -> Parser.parseQuery(filterText, new SystemClock().now()));
-            CliContext.ReadArchive opened = context.readingArchive("report on");
-            SearchResult found;
-            try (ArchiveDb connection = opened.connection()) {
-                found = context.reporting(() -> Execute.search(connection, query));
-            }
+            Query query = context.filter(filterText);
+            SearchResult found = context.search("report on", query);
             String body = Render.render(found.records(), options);
             if (outPath == null) {
                 context.echo(body);

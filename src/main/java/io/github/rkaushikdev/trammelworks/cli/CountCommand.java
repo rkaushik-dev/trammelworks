@@ -1,12 +1,9 @@
 package io.github.rkaushikdev.trammelworks.cli;
 
 import io.github.rkaushikdev.trammelworks.NanoTime;
-import io.github.rkaushikdev.trammelworks.SystemClock;
 import io.github.rkaushikdev.trammelworks.Units;
-import io.github.rkaushikdev.trammelworks.archive.ArchiveDb;
 import io.github.rkaushikdev.trammelworks.query.Aggregate;
 import io.github.rkaushikdev.trammelworks.query.Group;
-import io.github.rkaushikdev.trammelworks.query.Parser;
 import io.github.rkaushikdev.trammelworks.query.Query;
 import io.github.rkaushikdev.trammelworks.query.Tally;
 import java.time.Duration;
@@ -83,15 +80,13 @@ final class CountCommand implements Callable<Integer> {
         if (group != null && bucket != null) {
             throw context.fail("group by a field or over time, not both at once");
         }
-        Query query = context.reporting(() -> Parser.parseQuery(filterText, new SystemClock().now()));
+        Query query = context.filter(filterText);
         Duration width = bucket == null ? null : context.reporting(() -> Units.parseDuration(bucket));
-        CliContext.ReadArchive opened = context.readingArchive("count");
-        Tally tally;
-        try (ArchiveDb connection = opened.connection()) {
-            tally = context.reporting(() -> width != null
-                    ? Aggregate.countOverTime(connection, query, width, ceiling)
-                    : Aggregate.countBy(connection, query, group == null ? "unit" : group, ceiling));
-        }
+        Tally tally = context.withArchive(
+                "count",
+                connection -> width != null
+                        ? Aggregate.countOverTime(connection, query, width, ceiling)
+                        : Aggregate.countBy(connection, query, group == null ? "unit" : group, ceiling));
         if (tally.groups().isEmpty()) {
             context.echo("nothing matched");
             return Cli.EXIT_OK;
