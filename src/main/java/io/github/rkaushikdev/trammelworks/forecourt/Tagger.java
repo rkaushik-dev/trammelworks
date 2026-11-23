@@ -32,12 +32,22 @@ public final class Tagger {
         return tagged;
     }
 
-    /** The labels this record should gain, before anything already on it is considered. */
+    /**
+     * The labels this record should gain, before anything already on it is considered. A pump state
+     * is only read off a line that also names its fuelling point: "AUTHORISED" on its own could be
+     * about anything.
+     */
     public Map<String, String> labelsFor(LogRecord record) {
         Map<String, String> found = new LinkedHashMap<>();
-        Role role = config.roleOf(record.unit());
-        if (role == Role.DISPENSER || role == Role.PAYMENT) {
-            FuellingPoint.find(record.message()).ifPresent(point -> found.put(FuellingPoint.LABEL, point));
+        String message = record.message();
+        switch (config.roleOf(record.unit())) {
+            case DISPENSER ->
+                FuellingPoint.find(message).ifPresent(point -> {
+                    found.put(FuellingPoint.LABEL, point);
+                    PumpState.find(message).ifPresent(state -> found.put(PumpState.LABEL, state.value()));
+                });
+            case PAYMENT -> FuellingPoint.find(message).ifPresent(point -> found.put(FuellingPoint.LABEL, point));
+            default -> {}
         }
         return found;
     }

@@ -117,9 +117,11 @@ class ForecourtTaggerTest {
     @Test
     void aLabelTheContainerWroteIsNeverOverwritten() {
         Tagger tagger = new Tagger(new ForecourtConfig());
-        LogRecord line = record("pump-bridge", "FP03 AUTHORISED").withLabel("pump", "03");
+        LogRecord line = record("pump-bridge", "FP03 grade 2").withLabel("pump", "03");
         assertThat(tagger.tag(line)).isSameAs(line);
         assertThat(tagger.labelsFor(line)).containsEntry("pump", "3");
+        LogRecord stated = record("pump-bridge", "FP03 AUTHORISED").withLabel("pump", "03");
+        assertThat(tagger.tag(stated).labels()).containsEntry("pump", "03").containsEntry("pump_state", "authorised");
     }
 
     @Test

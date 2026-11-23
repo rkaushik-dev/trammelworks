@@ -9,6 +9,7 @@ import io.github.rkaushikdev.trammelworks.archive.ArchiveSettings;
 import io.github.rkaushikdev.trammelworks.archive.Repository;
 import io.github.rkaushikdev.trammelworks.archive.StoredRecord;
 import io.github.rkaushikdev.trammelworks.forecourt.ForecourtConfig;
+import io.github.rkaushikdev.trammelworks.forecourt.PumpTimeline;
 import io.github.rkaushikdev.trammelworks.forecourt.Role;
 import io.github.rkaushikdev.trammelworks.redact.RedactConfig;
 import io.github.rkaushikdev.trammelworks.ship.FileTransport;
@@ -74,6 +75,10 @@ class SiteTest {
 
     Repository archiveOf(Site site) {
         return site.archive().orElseThrow();
+    }
+
+    List<StoredRecord> archivedOnTheDay(Site site) {
+        return archiveOf(site).between(NanoTime.parse("2025-03-04T00:00:00Z"), NanoTime.parse("2025-03-05T00:00:00Z"));
     }
 
     byte[] spoolBytes() throws IOException {
@@ -341,10 +346,26 @@ class SiteTest {
         Site site = build(new MemoryTransport());
         site.open();
         site.collect();
-        List<StoredRecord> found =
-                archiveOf(site).between(NanoTime.parse("2025-03-04T00:00:00Z"), NanoTime.parse("2025-03-05T00:00:00Z"));
+        List<StoredRecord> found = archivedOnTheDay(site);
         assertThat(found.get(0).labels()).containsEntry("pump", "3");
         assertThat(site.snapshot()).containsEntry("forecourt_tagged", 1L);
+    }
+
+    @Test
+    void aDispenserStateIsArchivedAndReplaysIntoATimeline() {
+        tree.writeCri(
+                "pump-bridge",
+                List.of(
+                        criFull(TS, "FP02 CALLING grade 1"),
+                        criFull("2025-03-04T12:00:04.000000000Z", "FP02 FUELLING 3.10 l")));
+        Site site = build(new MemoryTransport());
+        site.open();
+        site.collect();
+        List<StoredRecord> found = archivedOnTheDay(site);
+        assertThat(found)
+                .extracting(record -> record.labels().get("pump_state"))
+                .containsExactly("calling", "fuelling");
+        assertThat(PumpTimeline.replay(found).unauthorised()).hasSize(1);
     }
 
     @Test
@@ -354,8 +375,7 @@ class SiteTest {
                 new MemoryTransport(), over -> over.forecourt(new ForecourtConfig(Map.of("fcc", Role.DISPENSER))));
         site.open();
         site.collect();
-        List<StoredRecord> found =
-                archiveOf(site).between(NanoTime.parse("2025-03-04T00:00:00Z"), NanoTime.parse("2025-03-05T00:00:00Z"));
+        List<StoredRecord> found = archivedOnTheDay(site);
         assertThat(found.get(0).labels()).containsEntry("pump", "7");
     }
 
@@ -365,8 +385,7 @@ class SiteTest {
         Site site = build(new MemoryTransport());
         site.open();
         site.collect();
-        List<StoredRecord> found =
-                archiveOf(site).between(NanoTime.parse("2025-03-04T00:00:00Z"), NanoTime.parse("2025-03-05T00:00:00Z"));
+        List<StoredRecord> found = archivedOnTheDay(site);
         assertThat(found.get(0).message()).doesNotContain(VISA).contains("411111******1111");
     }
 
