@@ -5,6 +5,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -45,14 +46,16 @@ public final class Stripes {
         return PIN_KEYS.contains(key.toLowerCase(Locale.ROOT)) ? SecretKind.PIN_BLOCK : SecretKind.CARD_CODE;
     }
 
+    /** Every finder the stripe pass runs, in the order they were written. */
+    static final List<Function<String, List<SecretMatch>>> FINDERS =
+            List.of(Stripes::findTrack1, Stripes::findTrack2, Stripes::findKeyedSecrets, EmvData::findEmv);
+
     /** Track 1 images. */
     public static List<SecretMatch> findTrack1(String text) {
-        List<SecretMatch> found = new ArrayList<>();
-        Matcher match = TRACK1.matcher(text);
-        while (match.find()) {
-            found.add(new SecretMatch(match.start(), match.end(), SecretKind.TRACK1, match.group()));
-        }
-        return found;
+        return TRACK1.matcher(text)
+                .results()
+                .map(match -> new SecretMatch(match.start(), match.end(), SecretKind.TRACK1, match.group()))
+                .toList();
     }
 
     /** Track 2 images, with or without their sentinels. */
@@ -84,19 +87,23 @@ public final class Stripes {
 
     /** PIN blocks and card codes, found by the name beside them. */
     public static List<SecretMatch> findKeyedSecrets(String text) {
-        List<SecretMatch> found = new ArrayList<>();
-        Matcher match = KEYED_SECRETS.matcher(text);
-        while (match.find()) {
-            found.add(new SecretMatch(match.start(3), match.end(3), kindForKey(match.group(1)), match.group(3)));
-        }
-        return found;
+        return KEYED_SECRETS
+                .matcher(text)
+                .results()
+                .map(match -> new SecretMatch(match.start(3), match.end(3), kindForKey(match.group(1)), match.group(3)))
+                .toList();
     }
 
-    /** Everything that has to go, ordered and non overlapping, the longest winning a tie. */
+    /**
+     * Everything that has to go, ordered and non overlapping, the longest winning a tie. EMV dumps
+     * are in here rather than beside the PAN scan because a tag 57 value is a track 2 image in all
+     * but its separator, and it has to be gone before the PAN scan looks for what is inside it.
+     */
     public static List<SecretMatch> findSecrets(String text) {
-        List<SecretMatch> everything = new ArrayList<>(findTrack1(text));
-        everything.addAll(findTrack2(text));
-        everything.addAll(findKeyedSecrets(text));
+        List<SecretMatch> everything = new ArrayList<>();
+        for (Function<String, List<SecretMatch>> finder : FINDERS) {
+            everything.addAll(finder.apply(text));
+        }
         everything.sort(
                 Comparator.comparingInt(SecretMatch::start).thenComparingInt(item -> -(item.end() - item.start())));
         List<SecretMatch> kept = new ArrayList<>();

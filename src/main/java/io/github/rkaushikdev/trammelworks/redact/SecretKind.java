@@ -11,7 +11,9 @@ public enum SecretKind implements Json.Valued {
     /** A PIN block, found by its key. */
     PIN_BLOCK("pin_block"),
     /** A card verification code, found by its key. */
-    CARD_CODE("card_code");
+    CARD_CODE("card_code"),
+    /** The value of a cardholder data tag inside an EMV TLV dump. */
+    EMV_TAG("emv_tag");
 
     private final String value;
 
