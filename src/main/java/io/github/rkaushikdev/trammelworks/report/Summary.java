@@ -8,17 +8,12 @@ import io.github.rkaushikdev.trammelworks.archive.ArchiveDb;
 import io.github.rkaushikdev.trammelworks.archive.ArchiveSettings;
 import io.github.rkaushikdev.trammelworks.archive.Repository;
 import io.github.rkaushikdev.trammelworks.archive.Schema;
-import io.github.rkaushikdev.trammelworks.archive.StoredRecord;
-import io.github.rkaushikdev.trammelworks.forecourt.AlarmLog;
-import io.github.rkaushikdev.trammelworks.query.Execute;
-import io.github.rkaushikdev.trammelworks.query.Query;
-import io.github.rkaushikdev.trammelworks.query.Since;
+import io.github.rkaushikdev.trammelworks.forecourt.ForecourtDay;
 import io.github.rkaushikdev.trammelworks.spool.Segments;
 import io.github.rkaushikdev.trammelworks.spool.Usage;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.RecordComponent;
 import java.nio.file.Files;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -141,9 +136,6 @@ public final class Summary {
         return metrics.getOrDefault(name, 0L);
     }
 
-    /** How far back the forecourt section reads, which is what "nightly" means. */
-    public static final Duration FORECOURT_WINDOW = Duration.ofHours(24);
-
     /**
      * The summary of what is on disk: the spool as it stands, and the archive's record count and
      * the last day of the forecourt. An archive that cannot be read is handed to {@code
@@ -158,12 +150,7 @@ public final class Summary {
         if (settings.enabled() && Files.exists(settings.file())) {
             try (ArchiveDb connection = Schema.openArchive(settings.file(), true)) {
                 built.archived(new Repository(connection).count());
-                Since dayStart = new Since(now.epochNs() - FORECOURT_WINDOW.toNanos());
-                List<StoredRecord> day =
-                        Execute.search(connection, Query.of(dayStart)).records();
-                List<StoredRecord> alarms =
-                        Execute.search(connection, Query.of(AlarmLog.filter())).records();
-                built.forecourt(ForecourtSummary.fromRecords(day, alarms));
+                built.forecourt(ForecourtSummary.of(ForecourtDay.read(connection, now)));
             } catch (StanchionError exc) {
                 unreadable.accept(exc);
             }

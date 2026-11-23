@@ -4,6 +4,7 @@ import io.github.rkaushikdev.trammelworks.archive.StoredRecord;
 import io.github.rkaushikdev.trammelworks.forecourt.AlarmLog;
 import io.github.rkaushikdev.trammelworks.forecourt.AlarmSeverity;
 import io.github.rkaushikdev.trammelworks.forecourt.AlarmSpan;
+import io.github.rkaushikdev.trammelworks.forecourt.ForecourtDay;
 import io.github.rkaushikdev.trammelworks.forecourt.Outcome;
 import io.github.rkaushikdev.trammelworks.forecourt.PumpState;
 import io.github.rkaushikdev.trammelworks.forecourt.PumpTimeline;
@@ -40,6 +41,11 @@ public record ForecourtSummary(
     /** Nothing counted yet. */
     public ForecourtSummary() {
         this(0, 0, 0, 0, 0, 0, 0);
+    }
+
+    /** Count what a forecourt day read out of the archive. */
+    public static ForecourtSummary of(ForecourtDay read) {
+        return fromRecords(read.day(), read.alarms());
     }
 
     /**

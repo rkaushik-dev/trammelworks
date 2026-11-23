@@ -12,6 +12,8 @@ import io.github.rkaushikdev.trammelworks.archive.ArchiveDb;
 import io.github.rkaushikdev.trammelworks.archive.ArchiveSettings;
 import io.github.rkaushikdev.trammelworks.archive.Repository;
 import io.github.rkaushikdev.trammelworks.archive.Schema;
+import io.github.rkaushikdev.trammelworks.forecourt.ForecourtConfig;
+import io.github.rkaushikdev.trammelworks.forecourt.Tagger;
 import io.github.rkaushikdev.trammelworks.spool.SpoolSettings;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -211,6 +213,57 @@ class ServiceAppTest {
                         "environmental_standing", 1L,
                         "saf_depth", 0L));
         assertThat(payload.get("problems").toString()).contains("1 environmental tank alarms are standing");
+    }
+
+    void fillForecourt(List<List<String>> lines) {
+        Tagger tagger = new Tagger(new ForecourtConfig());
+        try (ArchiveDb connection = Schema.openArchive(archiveFile)) {
+            Repository repo = new Repository(connection);
+            for (List<String> line : lines) {
+                repo.add(
+                        tagger.tag(new LogRecord(
+                                "US-TX-0417", line.get(0), Stream.STDOUT, NanoTime.parse(line.get(1)), line.get(2))),
+                        NOW);
+            }
+        }
+    }
+
+    @Test
+    void theForecourtRouteShowsWhatTheKioskShows() {
+        fillForecourt(List.of(
+                List.of("pump-bridge", "2025-03-04T10:00:00Z", "FP10 IDLE"),
+                List.of("pump-bridge", "2025-03-04T10:00:00Z", "FP2 AUTHORISED"),
+                List.of("pump-bridge", "2025-03-04T10:01:00Z", "FP2 FUELLING"),
+                List.of("pump-bridge", "2025-03-04T10:02:00Z", "FP2 COMPLETED 20 litres"),
+                List.of("price-sign", "2025-03-04T08:00:00Z", "price diesel 1549"),
+                List.of("pump-bridge", "2025-03-04T08:00:10Z", "FP02 price diesel 1.529"),
+                List.of("tank-gauge", "2025-02-20T03:00:00Z", "T 3:LEAK ALARM"),
+                List.of("tank-gauge", "2025-03-04T09:00:00Z", "T 1:HIGH WATER ALARM"),
+                List.of("tank-gauge", "2025-03-04T09:30:00Z", "T 1:HIGH WATER ALARM CLEAR")));
+        ServiceResponse found = get("/forecourt");
+        assertThat(found.status()).isEqualTo(200);
+        Map<String, Object> payload = found.payload();
+        assertThat(payload).containsEntry("site", "US-TX-0417").containsEntry("at", NOW.isoformat());
+        assertThat(payload.get("pumps").toString()).isEqualTo("{2=completed, 10=idle}");
+        assertThat(payload.get("alarms"))
+                .isEqualTo(List.of(Map.of(
+                        "tank", "3",
+                        "alarm", "leak",
+                        "severity", "environmental",
+                        "raised_at", "2025-02-20T03:00:00.000000000Z")));
+        assertThat(payload.get("prices"))
+                .isEqualTo(List.of(Map.of(
+                        "pump", "2",
+                        "grade", "diesel",
+                        "sign", "1.549",
+                        "pump_price", "1.529",
+                        "since", "2025-03-04T08:00:10.000000000Z")));
+        assertThat(((Map<?, ?>) payload.get("day")).get("sales")).isEqualTo(1L);
+    }
+
+    @Test
+    void theForecourtRouteNeedsAnArchive() {
+        assertThat(get("/forecourt").status()).isEqualTo(404);
     }
 
     @Test

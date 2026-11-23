@@ -1,6 +1,7 @@
 package io.github.rkaushikdev.trammelworks.service;
 
 import io.github.rkaushikdev.trammelworks.Coerce;
+import io.github.rkaushikdev.trammelworks.Maps;
 import io.github.rkaushikdev.trammelworks.NanoTime;
 import io.github.rkaushikdev.trammelworks.Site;
 import io.github.rkaushikdev.trammelworks.SiteConfig;
@@ -9,13 +10,16 @@ import io.github.rkaushikdev.trammelworks.archive.ArchiveDb;
 import io.github.rkaushikdev.trammelworks.archive.Repository;
 import io.github.rkaushikdev.trammelworks.archive.Schema;
 import io.github.rkaushikdev.trammelworks.archive.StoredRecord;
+import io.github.rkaushikdev.trammelworks.forecourt.ForecourtDay;
 import io.github.rkaushikdev.trammelworks.query.Cursor;
 import io.github.rkaushikdev.trammelworks.query.Execute;
 import io.github.rkaushikdev.trammelworks.query.Parser;
 import io.github.rkaushikdev.trammelworks.query.Query;
 import io.github.rkaushikdev.trammelworks.query.SearchResult;
+import io.github.rkaushikdev.trammelworks.report.ForecourtSummary;
 import io.github.rkaushikdev.trammelworks.report.Summary;
 import java.nio.file.Files;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -24,6 +28,7 @@ import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.TreeMap;
 import java.util.function.BiFunction;
+import java.util.function.Function;
 
 /**
  * The routes for one site, as a pure function of a request.
@@ -64,6 +69,7 @@ public final class Service {
         out.put("/records", Service::records);
         out.put("/units", Service::units);
         out.put("/metrics", Service::metrics);
+        out.put("/forecourt", Service::forecourt);
         return java.util.Collections.unmodifiableMap(out);
     }
 
@@ -110,14 +116,27 @@ public final class Service {
         return new ServiceResponse(200, built.asDict());
     }
 
-    /** One page of archived records matching a filter. */
-    public ServiceResponse records(ServiceRequest request) {
+    /**
+     * Answer from the archive, opened read only for as long as {@code work} runs. A site that keeps
+     * no archive, or has not written one yet, gets the problem that says which.
+     */
+    private ServiceResponse reading(Function<ArchiveDb, Map<String, Object>> work) {
         if (!config.archive().enabled()) {
             return ServiceResponse.problem(409, "this site keeps no archive");
         }
         if (!Files.exists(config.archive().file())) {
             return ServiceResponse.problem(404, "the archive has not been created yet");
         }
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("site", config.site());
+        try (ArchiveDb connection = Schema.openArchive(config.archive().file(), true)) {
+            payload.putAll(work.apply(connection));
+        }
+        return new ServiceResponse(200, payload);
+    }
+
+    /** One page of archived records matching a filter. */
+    public ServiceResponse records(ServiceRequest request) {
         int limit = limit(request);
         Query query = Parser.parseQuery(request.one("filter"), now);
         if (query.limit().isEmpty() || query.limit().getAsInt() > limit) {
@@ -125,19 +144,53 @@ public final class Service {
         }
         String after = request.one("after");
         Optional<Cursor> cursor = after.isEmpty() ? Optional.empty() : Optional.of(Cursor.parseCursor(after));
-        SearchResult found;
-        try (ArchiveDb connection = Schema.openArchive(config.archive().file(), true)) {
-            found = Execute.search(connection, query, Execute.DEFAULT_SCAN_CEILING, cursor);
-        }
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("site", config.site());
-        payload.put("count", found.count());
-        payload.put("truncated", found.truncated());
-        payload.put("records", found.records().stream().map(Service::record).toList());
-        // Only when there might be more. A caller that follows the cursor while one is offered
-        // and stops when it is not needs no count arithmetic to know when it has the lot.
-        found.nextCursor().ifPresent(next -> payload.put("next", next.encode()));
-        return new ServiceResponse(200, payload);
+        Query asked = query;
+        return reading(connection -> {
+            SearchResult found = Execute.search(connection, asked, Execute.DEFAULT_SCAN_CEILING, cursor);
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("count", found.count());
+            payload.put("truncated", found.truncated());
+            payload.put("records", found.records().stream().map(Service::record).toList());
+            // Only when there might be more. A caller that follows the cursor while one is offered
+            // and stops when it is not needs no count arithmetic to know when it has the lot.
+            found.nextCursor().ifPresent(next -> payload.put("next", next.encode()));
+            return payload;
+        });
+    }
+
+    /**
+     * What the kiosk behind the counter shows: the state each pump was last in, the tank alarms
+     * still standing, any pump charging a different price from the sign, and the day's counts.
+     */
+    public ServiceResponse forecourt(ServiceRequest request) {
+        return reading(connection -> {
+            ForecourtDay read = ForecourtDay.read(connection, now);
+            Map<String, Object> pumps = new TreeMap<>(Comparator.comparingInt(Integer::parseInt));
+            read.pumps().states().forEach((pump, state) -> pumps.put(pump, state.value()));
+            List<Map<String, Object>> alarms = read.alarmLog().open().stream()
+                    .map(span -> Maps.of(
+                            "tank", span.tank(),
+                            "alarm", span.alarm().value(),
+                            "severity", span.alarm().severity().value(),
+                            "raised_at", span.raisedAt().isoformat()))
+                    .toList();
+            List<Map<String, Object>> prices = read.prices().mismatches(now).stream()
+                    .filter(item -> item.until().isEmpty())
+                    .map(item -> Maps.of(
+                            "pump", item.pump(),
+                            "grade", item.grade().value(),
+                            "sign", item.sign().toPlainString(),
+                            "pump_price", item.pumpPrice().toPlainString(),
+                            "since", item.since().isoformat()))
+                    .toList();
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("at", now.isoformat());
+            payload.put("pumps", new LinkedHashMap<>(pumps));
+            payload.put("alarms", alarms);
+            payload.put("prices", prices);
+            payload.put("day", Summary.sectionDict(ForecourtSummary.of(read)));
+            return payload;
+        });
     }
 
     /**
