@@ -2,13 +2,10 @@ package io.github.rkaushikdev.trammelworks.forecourt;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import io.github.rkaushikdev.trammelworks.LogRecord;
 import io.github.rkaushikdev.trammelworks.NanoTime;
-import io.github.rkaushikdev.trammelworks.Stream;
 import io.github.rkaushikdev.trammelworks.archive.StoredRecord;
 import java.math.BigDecimal;
 import java.util.List;
-import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -19,25 +16,7 @@ class ForecourtOverrunTest {
     static final NanoTime NOON = NanoTime.parse("2025-03-04T12:00:00Z");
 
     static StoredRecord stored(int minutes, String message) {
-        LogRecord tagged = new Tagger(new ForecourtConfig())
-                .tag(new LogRecord(
-                        "US-TX-0417",
-                        "payment-kernel",
-                        Stream.STDOUT,
-                        NOON.shifted(minutes * 60 * NanoTime.NS_PER_SECOND),
-                        message));
-        return new StoredRecord(
-                "k" + minutes,
-                tagged.site(),
-                tagged.unit(),
-                "payment",
-                tagged.stream(),
-                tagged.observedAt(),
-                Optional.empty(),
-                "unknown",
-                tagged.message(),
-                tagged.labels(),
-                NOON);
+        return ForecourtRecords.tagged("payment-kernel", NOON.shifted(minutes * 60 * NanoTime.NS_PER_SECOND), message);
     }
 
     @ParameterizedTest

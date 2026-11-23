@@ -3,9 +3,7 @@ package io.github.rkaushikdev.trammelworks.forecourt;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.rkaushikdev.trammelworks.Json;
-import io.github.rkaushikdev.trammelworks.LogRecord;
 import io.github.rkaushikdev.trammelworks.NanoTime;
-import io.github.rkaushikdev.trammelworks.Stream;
 import io.github.rkaushikdev.trammelworks.archive.StoredRecord;
 import java.math.BigDecimal;
 import java.time.Duration;
@@ -25,20 +23,7 @@ class ForecourtPriceTest {
     }
 
     static StoredRecord stored(String unit, int minutes, String message) {
-        LogRecord tagged = new Tagger(new ForecourtConfig())
-                .tag(new LogRecord("US-TX-0417", unit, Stream.STDOUT, at(minutes), message));
-        return new StoredRecord(
-                "k" + unit + minutes,
-                tagged.site(),
-                tagged.unit(),
-                "standard",
-                tagged.stream(),
-                tagged.observedAt(),
-                Optional.empty(),
-                "unknown",
-                tagged.message(),
-                tagged.labels(),
-                NOON);
+        return ForecourtRecords.tagged(unit, at(minutes), message);
     }
 
     static FuelPrice price(Grade grade, String value) {

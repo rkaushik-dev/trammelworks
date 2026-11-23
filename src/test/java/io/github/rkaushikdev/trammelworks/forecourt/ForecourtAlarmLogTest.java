@@ -3,7 +3,6 @@ package io.github.rkaushikdev.trammelworks.forecourt;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.rkaushikdev.trammelworks.NanoTime;
-import io.github.rkaushikdev.trammelworks.Stream;
 import io.github.rkaushikdev.trammelworks.archive.StoredRecord;
 import java.time.Duration;
 import java.util.List;
@@ -20,18 +19,8 @@ class ForecourtAlarmLogTest {
     }
 
     static StoredRecord stored(int minutes, String tank, String alarm, String state) {
-        return new StoredRecord(
-                "k" + minutes + tank + alarm,
-                "US-TX-0417",
-                "tank-gauge",
-                "standard",
-                Stream.STDOUT,
-                at(minutes),
-                Optional.empty(),
-                "unknown",
-                "line",
-                Map.of("tank", tank, "alarm", alarm, "alarm_state", state),
-                at(minutes));
+        return ForecourtRecords.labelled(
+                "tank-gauge", at(minutes), Map.of("tank", tank, "alarm", alarm, "alarm_state", state));
     }
 
     @Test

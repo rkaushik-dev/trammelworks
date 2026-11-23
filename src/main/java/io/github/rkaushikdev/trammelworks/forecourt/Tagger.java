@@ -53,7 +53,13 @@ public final class Tagger {
     private static void dispenser(String message, Map<String, String> found) {
         FuellingPoint.find(message).ifPresent(point -> {
             found.put(FuellingPoint.LABEL, point);
-            PumpState.find(message).ifPresent(state -> found.put(PumpState.LABEL, state.value()));
+            PumpState.find(message).ifPresent(state -> {
+                found.put(PumpState.LABEL, state.value());
+                if (state == PumpState.COMPLETED) {
+                    DeliveredVolume.read(message)
+                            .ifPresent(litres -> found.put(DeliveredVolume.LABEL, litres.toPlainString()));
+                }
+            });
             price(message, found);
         });
     }

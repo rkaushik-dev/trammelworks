@@ -8,7 +8,6 @@ import io.github.rkaushikdev.trammelworks.Stream;
 import io.github.rkaushikdev.trammelworks.archive.StoredRecord;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -22,18 +21,7 @@ class ForecourtPumpTest {
     }
 
     static StoredRecord stored(int seconds, Map<String, String> labels) {
-        return new StoredRecord(
-                "k" + seconds,
-                "US-TX-0417",
-                "pump-bridge",
-                "standard",
-                Stream.STDOUT,
-                at(seconds),
-                Optional.empty(),
-                "unknown",
-                "line",
-                labels,
-                at(seconds));
+        return ForecourtRecords.labelled("pump-bridge", at(seconds), labels);
     }
 
     @ParameterizedTest

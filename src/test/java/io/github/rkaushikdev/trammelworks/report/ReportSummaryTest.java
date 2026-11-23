@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.github.rkaushikdev.trammelworks.Json;
 import io.github.rkaushikdev.trammelworks.NanoTime;
 import io.github.rkaushikdev.trammelworks.archive.StoredRecord;
+import io.github.rkaushikdev.trammelworks.forecourt.ForecourtRecords;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -281,18 +282,7 @@ class ReportSummaryTest {
     }
 
     static StoredRecord stored(String time, Map<String, String> labels) {
-        return new StoredRecord(
-                "k" + time + labels,
-                SITE,
-                "pump-bridge",
-                "standard",
-                io.github.rkaushikdev.trammelworks.Stream.STDOUT,
-                NanoTime.parse("2025-03-04T" + time + "Z"),
-                java.util.Optional.empty(),
-                "unknown",
-                "line",
-                labels,
-                NOW);
+        return ForecourtRecords.labelled("pump-bridge", NanoTime.parse("2025-03-04T" + time + "Z"), labels);
     }
 
     @Test

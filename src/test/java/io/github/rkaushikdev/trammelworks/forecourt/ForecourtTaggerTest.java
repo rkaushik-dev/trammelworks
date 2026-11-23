@@ -54,7 +54,8 @@ class ForecourtTaggerTest {
         ForecourtConfig config =
                 ForecourtConfig.forecourtFromMapping(Map.of("roles", Map.of("fcc-bridge", "dispenser")));
         assertThat(config.roles()).containsEntry("fcc-bridge", Role.DISPENSER);
-        assertThat(config.asDict()).isEqualTo(Map.of("roles", Map.of("fcc-bridge", "dispenser")));
+        assertThat(config.asDict())
+                .isEqualTo(Map.of("roles", Map.of("fcc-bridge", "dispenser"), "timezone", "UTC", "day_close", "00:00"));
     }
 
     @Test

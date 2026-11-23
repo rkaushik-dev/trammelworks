@@ -118,6 +118,11 @@ forecourt:
   roles:
     fcc-bridge: dispenser
 
+  # The trading day the back office reconciles against. Quoted, because YAML
+  # reads a bare 05:00 as the number 300.
+  timezone: America/Chicago
+  day_close: '05:00'
+
 labels:
   estate: southwest
   brand: forecourt-one
