@@ -150,7 +150,7 @@ public final class Summary {
         if (settings.enabled() && Files.exists(settings.file())) {
             try (ArchiveDb connection = Schema.openArchive(settings.file(), true)) {
                 built.archived(new Repository(connection).count());
-                built.forecourt(ForecourtSummary.of(ForecourtDay.read(connection, now)));
+                built.forecourt(ForecourtSummary.of(ForecourtDay.read(connection, now), config.forecourt(), now));
             } catch (StanchionError exc) {
                 unreadable.accept(exc);
             }

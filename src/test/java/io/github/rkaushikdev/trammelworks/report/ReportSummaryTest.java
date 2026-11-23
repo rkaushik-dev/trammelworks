@@ -5,7 +5,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.github.rkaushikdev.trammelworks.Json;
 import io.github.rkaushikdev.trammelworks.NanoTime;
 import io.github.rkaushikdev.trammelworks.archive.StoredRecord;
+import io.github.rkaushikdev.trammelworks.forecourt.ForecourtConfig;
+import io.github.rkaushikdev.trammelworks.forecourt.ForecourtDay;
 import io.github.rkaushikdev.trammelworks.forecourt.ForecourtRecords;
+import io.github.rkaushikdev.trammelworks.forecourt.Role;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -304,7 +307,7 @@ class ReportSummaryTest {
                 stored("03:00:00", Map.of("tank", "3", "alarm", "leak", "alarm_state", "active")),
                 stored("03:30:00", Map.of("tank", "3", "alarm", "leak", "alarm_state", "clear")));
         ForecourtSummary found = ForecourtSummary.fromRecords(day, alarms);
-        assertThat(found).isEqualTo(new ForecourtSummary(1, 1, 1, 1, 2, 1, 3));
+        assertThat(found).isEqualTo(new ForecourtSummary(1, 1, 1, 1, 2, 1, 3, 0));
         assertThat(found.healthy()).isFalse();
         assertThat(found.problems())
                 .containsExactly(
@@ -328,14 +331,42 @@ class ReportSummaryTest {
     @Test
     void aQueueStillDeepIsAProblemButNotAnAttention() {
         Summary built = healthy();
-        built.forecourt(new ForecourtSummary(10, 0, 0, 0, 0, 0, 4));
+        built.forecourt(new ForecourtSummary(10, 0, 0, 0, 0, 0, 4, 0));
         assertThat(built.check()).containsExactly("4 payments are still waiting in store and forward");
         assertThat(built.forecourt().healthy()).isTrue();
     }
 
     @Test
+    void aSilentTankGaugeIsAnAttention() {
+        Summary built = healthy();
+        built.forecourt(new ForecourtSummary().withGaugeQuietMinutes(200));
+        assertThat(built.forecourt().gaugeSilent()).isTrue();
+        assertThat(built.healthy()).isFalse();
+        assertThat(built.check())
+                .containsExactly("the tank gauge has been silent for 3h20m, nothing is watching the tanks");
+        assertThat(new ForecourtSummary().withGaugeQuietMinutes(60).gaugeSilent())
+                .isFalse();
+    }
+
+    @Test
+    void theGaugeQuietIsMeasuredFromItsLastLine() {
+        NanoTime now = NanoTime.parse("2025-03-04T12:00:00Z");
+        ForecourtDay read = new ForecourtDay(
+                List.of(
+                        ForecourtRecords.labelled("tank-gauge", NanoTime.parse("2025-03-04T09:30:00Z"), Map.of()),
+                        ForecourtRecords.labelled("tank-gauge", NanoTime.parse("2025-03-04T10:15:00Z"), Map.of()),
+                        ForecourtRecords.labelled("pump-bridge", NanoTime.parse("2025-03-04T11:59:00Z"), Map.of())),
+                List.of());
+        assertThat(ForecourtSummary.of(read, new ForecourtConfig(), now).gaugeQuietMinutes())
+                .isEqualTo(105);
+        assertThat(read.quietFor(Role.PRICE_SIGN, new ForecourtConfig(), now)).isEqualTo(ForecourtDay.WINDOW);
+        ForecourtConfig renamed = new ForecourtConfig(Map.of("pump-bridge", Role.TANK_GAUGE));
+        assertThat(ForecourtSummary.of(read, renamed, now).gaugeQuietMinutes()).isEqualTo(1);
+    }
+
+    @Test
     void aStandingHighWaterAlarmIsNotAProblem() {
-        ForecourtSummary found = new ForecourtSummary(40, 3, 0, 0, 1, 0, 0);
+        ForecourtSummary found = new ForecourtSummary(40, 3, 0, 0, 1, 0, 0, 12);
         assertThat(found.healthy()).isTrue();
         assertThat(found.problems()).isEmpty();
     }
@@ -343,7 +374,7 @@ class ReportSummaryTest {
     @Test
     void aStandingLeakTurnsTheSummaryToAttention() {
         Summary built = healthy();
-        built.forecourt(new ForecourtSummary(10, 0, 0, 0, 1, 1, 0));
+        built.forecourt(new ForecourtSummary(10, 0, 0, 0, 1, 1, 0, 0));
         assertThat(built.healthy()).isFalse();
         assertThat(built.renderText())
                 .contains("ATTENTION")

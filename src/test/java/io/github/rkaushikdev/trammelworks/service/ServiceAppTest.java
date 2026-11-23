@@ -211,7 +211,8 @@ class ServiceAppTest {
                         "unauthorised", 0L,
                         "alarms_standing", 1L,
                         "environmental_standing", 1L,
-                        "saf_depth", 0L));
+                        "saf_depth", 0L,
+                        "gauge_quiet_minutes", 1440L));
         assertThat(payload.get("problems").toString()).contains("1 environmental tank alarms are standing");
     }
 

@@ -7,6 +7,7 @@ import io.github.rkaushikdev.trammelworks.query.Execute;
 import io.github.rkaushikdev.trammelworks.query.Query;
 import io.github.rkaushikdev.trammelworks.query.Since;
 import java.time.Duration;
+import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -34,6 +35,20 @@ public record ForecourtDay(List<StoredRecord> day, List<StoredRecord> alarms) {
         return new ForecourtDay(
                 Execute.search(connection, Query.of(dayStart)).records(),
                 Execute.search(connection, Query.of(AlarmLog.filter())).records());
+    }
+
+    /**
+     * How long since any unit playing {@code role} last said anything, as of {@code now}. A role
+     * silent for the whole day reads as silent for the whole window, which is as far back as this
+     * read can see.
+     */
+    public Duration quietFor(Role role, ForecourtConfig roles, NanoTime now) {
+        return day.stream()
+                .filter(record -> roles.roleOf(record.unit()) == role)
+                .map(StoredRecord::bestAt)
+                .max(Comparator.naturalOrder())
+                .map(last -> Duration.ofNanos(Math.max(0, now.epochNs() - last.epochNs())))
+                .orElse(WINDOW);
     }
 
     /** The state each pump was last seen in today. */

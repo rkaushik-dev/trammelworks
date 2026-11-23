@@ -188,7 +188,7 @@ public final class Service {
             payload.put("pumps", new LinkedHashMap<>(pumps));
             payload.put("alarms", alarms);
             payload.put("prices", prices);
-            payload.put("day", Summary.sectionDict(ForecourtSummary.of(read)));
+            payload.put("day", Summary.sectionDict(ForecourtSummary.of(read, config.forecourt(), now)));
             return payload;
         });
     }

@@ -1,14 +1,19 @@
 package io.github.rkaushikdev.trammelworks.report;
 
+import io.github.rkaushikdev.trammelworks.NanoTime;
+import io.github.rkaushikdev.trammelworks.Units;
 import io.github.rkaushikdev.trammelworks.archive.StoredRecord;
 import io.github.rkaushikdev.trammelworks.forecourt.AlarmLog;
 import io.github.rkaushikdev.trammelworks.forecourt.AlarmSeverity;
 import io.github.rkaushikdev.trammelworks.forecourt.AlarmSpan;
+import io.github.rkaushikdev.trammelworks.forecourt.ForecourtConfig;
 import io.github.rkaushikdev.trammelworks.forecourt.ForecourtDay;
 import io.github.rkaushikdev.trammelworks.forecourt.Outcome;
 import io.github.rkaushikdev.trammelworks.forecourt.PumpState;
 import io.github.rkaushikdev.trammelworks.forecourt.PumpTimeline;
+import io.github.rkaushikdev.trammelworks.forecourt.Role;
 import io.github.rkaushikdev.trammelworks.forecourt.StoreAndForward;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -27,6 +32,7 @@ import java.util.List;
  * @param alarmsStanding tank alarms raised and not cleared
  * @param environmentalStanding of those, the release detection alarms
  * @param safDepth payments waiting in store and forward, as the kernel last reported
+ * @param gaugeQuietMinutes how long since the tank gauge last said anything, in whole minutes
  */
 public record ForecourtSummary(
         long sales,
@@ -35,17 +41,38 @@ public record ForecourtSummary(
         long unauthorised,
         long alarmsStanding,
         long environmentalStanding,
-        long safDepth)
+        long safDepth,
+        long gaugeQuietMinutes)
         implements SummarySection {
+
+    /**
+     * How long a tank gauge may go without a line before nothing is watching the tanks. A poller
+     * reads the console every few minutes, so an hour of silence is a dead poller or a dead
+     * console, and the site has no leak detection until somebody notices.
+     */
+    public static final long GAUGE_QUIET_LIMIT_MINUTES = 60;
 
     /** Nothing counted yet. */
     public ForecourtSummary() {
-        this(0, 0, 0, 0, 0, 0, 0);
+        this(0, 0, 0, 0, 0, 0, 0, 0);
     }
 
-    /** Count what a forecourt day read out of the archive. */
-    public static ForecourtSummary of(ForecourtDay read) {
-        return fromRecords(read.day(), read.alarms());
+    /** Count what a forecourt day read out of the archive, as of {@code now}. */
+    public static ForecourtSummary of(ForecourtDay read, ForecourtConfig roles, NanoTime now) {
+        return fromRecords(read.day(), read.alarms())
+                .withGaugeQuietMinutes(
+                        read.quietFor(Role.TANK_GAUGE, roles, now).toMinutes());
+    }
+
+    /** The same, with the tank gauge quiet for {@code value} minutes. */
+    public ForecourtSummary withGaugeQuietMinutes(long value) {
+        return new ForecourtSummary(
+                sales, declines, hostUnavailable, unauthorised, alarmsStanding, environmentalStanding, safDepth, value);
+    }
+
+    /** Whether the tank gauge has been quiet for longer than a poller ever is. */
+    public boolean gaugeSilent() {
+        return gaugeQuietMinutes > GAUGE_QUIET_LIMIT_MINUTES;
     }
 
     /**
@@ -74,7 +101,8 @@ public record ForecourtSummary(
                 PumpTimeline.replay(day).unauthorised().size(),
                 standing.size(),
                 environmental,
-                safDepth);
+                safDepth,
+                0);
     }
 
     private static long count(List<StoredRecord> records, String label, String value) {
@@ -85,12 +113,16 @@ public record ForecourtSummary(
 
     @Override
     public boolean healthy() {
-        return unauthorised == 0 && environmentalStanding == 0;
+        return unauthorised == 0 && environmentalStanding == 0 && !gaugeSilent();
     }
 
     @Override
     public List<String> problems() {
         List<String> found = new ArrayList<>();
+        if (gaugeSilent()) {
+            found.add("the tank gauge has been silent for "
+                    + Units.formatDuration(Duration.ofMinutes(gaugeQuietMinutes)) + ", nothing is watching the tanks");
+        }
         if (environmentalStanding != 0) {
             found.add(environmentalStanding + " environmental tank alarms are standing");
         }
