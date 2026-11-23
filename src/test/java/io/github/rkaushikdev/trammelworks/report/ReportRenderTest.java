@@ -116,6 +116,75 @@ class ReportRenderTest {
                 .hasMessageContaining("at least one");
     }
 
+    static final RenderOptions WITH_LANE = new RenderOptions().withLabels(List.of("lane", "response_code"));
+
+    @Test
+    void aLabelColumnSitsBeforeTheMessageInTheText() {
+        assertThat(lines(Render.render(List.of(record()), WITH_LANE)))
+                .containsExactly(
+                        "time                           unit             class     stream lane     response_code message",
+                        "2025-03-04T11:00:00.000000000Z payment-kernel   payment   stdout 3                      auth approved");
+    }
+
+    @Test
+    void aLabelColumnIsAddedAfterTheConfidenceInTheCsv() {
+        List<List<String>> rows = readCsv(Render.render(List.of(record()), WITH_LANE.withFormat(ReportFormat.CSV)));
+        assertThat(rows.get(0))
+                .containsExactly("time", "unit", "class", "stream", "confidence", "lane", "response_code", "message");
+        assertThat(rows.get(1))
+                .containsExactly(
+                        "2025-03-04T11:00:00.000000000Z",
+                        "payment-kernel",
+                        "payment",
+                        "stdout",
+                        "measured",
+                        "3",
+                        "",
+                        "auth approved");
+    }
+
+    @Test
+    void aLabelColumnIsEscapedInTheMarkdown() {
+        StoredRecord piped = new StoredRecord(
+                "k",
+                "US-TX-0417",
+                "pump-bridge",
+                "standard",
+                Stream.STDOUT,
+                at("2025-03-04T11:00:00Z"),
+                Optional.empty(),
+                "measured",
+                "FP03 IDLE",
+                Map.of("lane", "a|b"),
+                NOW);
+        assertThat(lines(Render.render(List.of(piped), WITH_LANE.withFormat(ReportFormat.MARKDOWN))))
+                .containsExactly(
+                        "| time | unit | class | stream | lane | response_code | message |",
+                        "| --- | --- | --- | --- | --- | --- | --- |",
+                        "| 2025-03-04T11:00:00.000000000Z | pump-bridge | standard | stdout | a\\|b |  | FP03 IDLE |");
+    }
+
+    @Test
+    void aLabelColumnSurvivesAChangeOfFormat() {
+        assertThat(WITH_LANE
+                        .withFormat(ReportFormat.CSV)
+                        .withWidth(10)
+                        .withHeader(false)
+                        .withRawTime(true)
+                        .labels())
+                .containsExactly("lane", "response_code");
+    }
+
+    @Test
+    void aLabelColumnNamedTwiceIsRefused() {
+        assertThatThrownBy(() -> new RenderOptions().withLabels(List.of("pump", "pump")))
+                .isInstanceOf(StanchionError.class)
+                .hasMessageContaining("named twice");
+        assertThatThrownBy(() -> new RenderOptions().withLabels(List.of("")))
+                .isInstanceOf(StanchionError.class)
+                .hasMessageContaining("needs a name");
+    }
+
     @Test
     void theTextFormatHasAHeader() {
         assertThat(lines(Render.render(List.of(record()))).get(0)).startsWith("time");

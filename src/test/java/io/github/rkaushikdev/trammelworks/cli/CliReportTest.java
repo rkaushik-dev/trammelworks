@@ -63,6 +63,28 @@ class CliReportTest {
         }
     }
 
+    @Test
+    void aDisputeReportCarriesThePumpAndTheResponseCode() {
+        try (ArchiveDb connection = Schema.openArchive(archiveFile)) {
+            new Repository(connection)
+                    .add(
+                            new LogRecord(
+                                            "US-TX-0417",
+                                            "payment-kernel",
+                                            Stream.STDOUT,
+                                            NanoTime.parse("2025-03-04T11:00:00Z"),
+                                            "auth response pump=4 rc=51")
+                                    .withLabels(Map.of("pump", "4", "response", "51")),
+                            NOW);
+        }
+        CliRunner.Result result = invoke("report", "--format", "csv", "--labels", "pump,response");
+        assertThat(result.exitCode()).isZero();
+        assertThat(result.stdout().lines().toList())
+                .containsExactly(
+                        "time,unit,class,stream,confidence,pump,response,message",
+                        "2025-03-04T11:00:00.000000000Z,payment-kernel,standard,stdout,unknown,4,51,auth response pump=4 rc=51");
+    }
+
     CliRunner.Result invoke(String... args) {
         return CliFixtures.invoke(config, args);
     }

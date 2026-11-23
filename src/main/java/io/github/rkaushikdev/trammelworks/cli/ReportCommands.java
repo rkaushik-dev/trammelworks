@@ -20,6 +20,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.concurrent.Callable;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Help.Visibility;
@@ -68,11 +69,18 @@ final class ReportCommands {
         @Option(names = "--raw-time", description = "Show what the box claimed, not the correction.")
         boolean rawTime;
 
+        @Option(
+                names = "--labels",
+                split = ",",
+                paramLabel = "LABEL",
+                description = "Labels to show in columns of their own, such as pump,response.")
+        List<String> labels = List.of();
+
         @Override
         public Integer call() {
             CliContext context = root.context();
             RenderOptions options = context.reporting(
-                    () -> new RenderOptions(ReportFormat.parse(formatName), width, !noHeader, rawTime));
+                    () -> new RenderOptions(ReportFormat.parse(formatName), width, !noHeader, rawTime, labels));
             Query query = context.filter(filterText);
             SearchResult found = context.search("report on", query);
             String body = Render.render(found.records(), options);

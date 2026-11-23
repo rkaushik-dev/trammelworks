@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.BiFunction;
 
 /**
  * Four ways to write records out, for four different readers.
@@ -26,16 +27,55 @@ import java.util.Map;
  */
 public final class Render {
 
+    /** How wide the time column is in the text table. */
+    public static final int TIME_WIDTH = 30;
+
     /** How wide the unit column is in the text table. */
     public static final int UNIT_WIDTH = 16;
 
     /** How wide the class column is in the text table. */
     public static final int CLASS_WIDTH = 9;
 
-    /** The csv header. */
-    public static final List<String> COLUMNS = List.of("time", "unit", "class", "stream", "confidence", "message");
+    /** How wide the stream column is in the text table. */
+    public static final int STREAM_WIDTH = 6;
+
+    /** The narrowest a label column is in the text table. */
+    public static final int LABEL_WIDTH = 8;
 
     private Render() {}
+
+    /**
+     * One column of the tables: its header, its width in the text table, and how a record fills it.
+     * The message is always the last column and is not in this list.
+     *
+     * @param name the header
+     * @param width how wide the text table pads it
+     * @param value what a record puts in it
+     */
+    record Column(String name, int width, BiFunction<StoredRecord, RenderOptions, String> value) {}
+
+    /**
+     * The columns before the message, in order. A label the site asked for gets a column of its
+     * own after the fixed ones, empty where a record does not carry it; its width is fixed by its
+     * name, never by the data, for the same reason the others are.
+     */
+    static List<Column> columns(RenderOptions options, boolean withConfidence) {
+        List<Column> out = new ArrayList<>(List.of(
+                new Column(
+                        "time", TIME_WIDTH, (record, opts) -> when(record, opts).isoformat()),
+                new Column("unit", UNIT_WIDTH, (record, opts) -> record.unit()),
+                new Column("class", CLASS_WIDTH, (record, opts) -> record.klass()),
+                new Column("stream", STREAM_WIDTH, (record, opts) -> record.stream()
+                        .value())));
+        if (withConfidence) {
+            out.add(new Column("confidence", 0, (record, opts) -> record.confidence()));
+        }
+        for (String label : options.labels()) {
+            out.add(new Column(label, Math.max(LABEL_WIDTH, label.length()), (record, opts) -> record.labels()
+                    .getOrDefault(label, "")));
+        }
+        return out;
+    }
 
     /** Render with the default options. */
     public static String render(List<StoredRecord> records) {
@@ -54,24 +94,29 @@ public final class Render {
 
     /** The terminal table. */
     public static String renderText(List<StoredRecord> records, RenderOptions options) {
+        List<Column> columns = columns(options, false);
         List<String> lines = new ArrayList<>();
         if (options.header()) {
-            lines.add(textRow("time", "unit", "class", "stream", "message"));
+            lines.add(textRow(columns, columns.stream().map(Column::name).toList(), "message"));
         }
         for (StoredRecord record : records) {
-            lines.add(textRow(
-                    when(record, options).isoformat(),
-                    record.unit(),
-                    record.klass(),
-                    record.stream().value(),
-                    cut(record.message(), options.width())));
+            lines.add(textRow(columns, values(columns, record, options), cut(record.message(), options.width())));
         }
         return String.join("\n", lines);
     }
 
-    private static String textRow(String when, String unit, String klass, String stream, String message) {
-        return pad(when, 30) + " " + pad(unit, UNIT_WIDTH) + " " + pad(klass, CLASS_WIDTH) + " " + pad(stream, 6) + " "
-                + message;
+    private static List<String> values(List<Column> columns, StoredRecord record, RenderOptions options) {
+        return columns.stream()
+                .map(column -> column.value().apply(record, options))
+                .toList();
+    }
+
+    private static String textRow(List<Column> columns, List<String> values, String message) {
+        StringBuilder out = new StringBuilder();
+        for (int index = 0; index < columns.size(); index++) {
+            out.append(pad(values.get(index), columns.get(index).width())).append(' ');
+        }
+        return out.append(message).toString();
     }
 
     /** One object per line, keys sorted, both times. */
@@ -98,20 +143,18 @@ public final class Render {
      * carriage return or a newline, quotes inside doubled.
      */
     public static String renderCsv(List<StoredRecord> records, RenderOptions options) {
+        List<Column> columns = columns(options, true);
         StringBuilder out = new StringBuilder();
         if (options.header()) {
-            csvRow(out, COLUMNS);
+            List<String> header =
+                    new ArrayList<>(columns.stream().map(Column::name).toList());
+            header.add("message");
+            csvRow(out, header);
         }
         for (StoredRecord record : records) {
-            csvRow(
-                    out,
-                    List.of(
-                            when(record, options).isoformat(),
-                            record.unit(),
-                            record.klass(),
-                            record.stream().value(),
-                            record.confidence(),
-                            record.message()));
+            List<String> row = new ArrayList<>(values(columns, record, options));
+            row.add(record.message());
+            csvRow(out, row);
         }
         int end = out.length();
         while (end > 0 && out.charAt(end - 1) == '\n') {
@@ -137,15 +180,27 @@ public final class Render {
 
     /** The table for a ticket. */
     public static String renderMarkdown(List<StoredRecord> records, RenderOptions options) {
+        List<Column> columns = columns(options, false);
         List<String> lines = new ArrayList<>();
-        lines.add("| time | unit | class | stream | message |");
-        lines.add("| --- | --- | --- | --- | --- |");
+        lines.add(markdownRow(columns.stream().map(Column::name).toList(), "message"));
+        lines.add(markdownRow(columns.stream().map(column -> "---").toList(), "---"));
         for (StoredRecord record : records) {
-            lines.add("| " + when(record, options).isoformat() + " | " + record.unit() + " | " + record.klass()
-                    + " | " + record.stream().value() + " | "
-                    + cut(record.message(), options.width()).replace("|", "\\|") + " |");
+            List<String> cells = values(columns, record, options).stream()
+                    .map(Render::markdownCell)
+                    .toList();
+            lines.add(markdownRow(cells, markdownCell(cut(record.message(), options.width()))));
         }
         return String.join("\n", lines);
+    }
+
+    private static String markdownRow(List<String> cells, String message) {
+        StringBuilder out = new StringBuilder("|");
+        cells.forEach(cell -> out.append(' ').append(cell).append(" |"));
+        return out.append(' ').append(message).append(" |").toString();
+    }
+
+    private static String markdownCell(String text) {
+        return text.replace("|", "\\|");
     }
 
     private static NanoTime when(StoredRecord record, RenderOptions options) {
