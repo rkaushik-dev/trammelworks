@@ -86,7 +86,12 @@ class RedactPanTest {
         AMEX + ", amex",
         "6011000990139424, discover",
         "3530111333300000, jcb",
-        "6759649826438453, maestro"
+        "6759649826438453, maestro",
+        "2221000000000009, mastercard",
+        "2720990000000004, mastercard",
+        "2200150000000002, mir",
+        "6200000000000005, unionpay",
+        "6221260000000000, discover"
     })
     void theBrandIsReadFromThePrefix(String digits, String brand) {
         assertThat(Pans.brandOf(digits)).contains(brand);
@@ -101,6 +106,61 @@ class RedactPanTest {
     void theLongestMatchingPrefixWins() {
         assertThat(Pans.brandOf("7081380000000000")).contains("fleet");
         assertThat(Pans.brandOf("7071380000000000")).contains("wex");
+    }
+
+    @ParameterizedTest
+    @CsvSource({"2100000000000000", "2721000000000000", "3527000000000000", "3590000000000000"})
+    void numbersJustOutsideARangeHaveNoBrand(String digits) {
+        assertThat(Pans.brandOf(digits)).isEmpty();
+    }
+
+    @Test
+    void aCoBadgedBlockIsNamedForTheSchemeThatCarvedIt() {
+        assertThat(Pans.issuerOf("6221260000000000")).contains(new IssuerRange("discover", "622126", "622925"));
+        assertThat(Pans.issuerOf("6229260000000000")).contains(new IssuerRange("unionpay", "62", "62"));
+    }
+
+    @Test
+    void aMirCardIsMaskedLikeAnyOther() {
+        String body = "220015000000000";
+        String mir = body + Luhn.luhnCheckDigit(body);
+        assertThat(Pans.maskPans("card " + mir)).isEqualTo("card 220015******" + mir.substring(12));
+    }
+
+    @Test
+    void aRangeIsReadFromItsWrittenForm() {
+        IssuerRange range = IssuerRange.of("jcb", "3528-3589");
+        assertThat(range.width()).isEqualTo(4);
+        assertThat(range.size()).isEqualTo(62);
+        assertThat(range).hasToString("jcb 3528-3589");
+        assertThat(IssuerRange.of("visa", "4")).hasToString("visa 4");
+    }
+
+    @Test
+    void aRangeOnlyCoversNumbersLongEnoughToReach() {
+        assertThat(IssuerRange.of("discover", "622126-622925").covers("6221")).isFalse();
+    }
+
+    @Test
+    void theNarrowerOfTwoEqualWidthRangesIsMoreSpecific() {
+        IssuerRange wide = IssuerRange.of("maestro", "56-58");
+        IssuerRange narrow = IssuerRange.of("diners", "36");
+        assertThat(narrow.moreSpecificThan(wide)).isTrue();
+        assertThat(wide.moreSpecificThan(narrow)).isFalse();
+        assertThat(IssuerRange.of("wex", "707138").moreSpecificThan(narrow)).isTrue();
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        "visa, 4a, written in digits",
+        "visa, 4-50, same width",
+        "visa, 55-51, runs low to high",
+        "'', 4, needs a brand"
+    })
+    void aMalformedRangeIsRefused(String brand, String written, String message) {
+        assertThatThrownBy(() -> IssuerRange.of(brand, written))
+                .isInstanceOf(io.github.rkaushikdev.trammelworks.ConfigError.class)
+                .hasMessageContaining(message);
     }
 
     @Test

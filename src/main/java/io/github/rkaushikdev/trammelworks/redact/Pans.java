@@ -1,9 +1,7 @@
 package io.github.rkaushikdev.trammelworks.redact;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -12,9 +10,9 @@ import java.util.regex.Pattern;
  * Finding card numbers in a line of log output.
  *
  * <p>Three tests have to pass together before a run of digits is treated as a PAN, and each one on
- * its own is useless: a length of 13 to 19 digits, the Luhn check, and an issuer prefix we
+ * its own is useless: a length of 13 to 19 digits, the Luhn check, and an issuer range we
  * recognise. A forecourt controller prints a lot of long numbers (transaction references, EMV tags,
- * tank volumes in millilitres), and fuel cards are why the prefix table is not the usual four
+ * tank volumes in millilitres), and fuel cards are why the range table is not the usual four
  * brands: an unrecognised fleet PAN ships off site in the clear.
  *
  * <p>The scan keeps spans, because the replacement has to go back exactly where the digits were.
@@ -23,8 +21,41 @@ import java.util.regex.Pattern;
  */
 public final class Pans {
 
-    /** Issuer prefixes seen across the estate, fuel and fleet ranges included. */
-    public static final Map<String, List<String>> ISSUER_PREFIXES = prefixes();
+    /**
+     * Issuer ranges seen across the estate, fuel and fleet ranges included. Each entry is a range
+     * of leading digits, written {@code low-high} or as a single prefix.
+     */
+    public static final List<IssuerRange> ISSUER_RANGES = List.of(
+            IssuerRange.of("visa", "4"),
+            IssuerRange.of("mastercard", "51-55"),
+            // The 2-series is 2221 to 2720 and nothing either side of it. A plain "22" would put
+            // every Mir card in the Mastercard column.
+            IssuerRange.of("mastercard", "2221-2720"),
+            IssuerRange.of("mir", "2200-2204"),
+            IssuerRange.of("amex", "34"),
+            IssuerRange.of("amex", "37"),
+            IssuerRange.of("discover", "6011"),
+            IssuerRange.of("discover", "644-649"),
+            IssuerRange.of("discover", "65"),
+            IssuerRange.of("discover", "622126-622925"),
+            IssuerRange.of("unionpay", "62"),
+            IssuerRange.of("diners", "300-305"),
+            IssuerRange.of("diners", "36"),
+            IssuerRange.of("diners", "38"),
+            IssuerRange.of("jcb", "3528-3589"),
+            IssuerRange.of("maestro", "50"),
+            IssuerRange.of("maestro", "56-58"),
+            IssuerRange.of("maestro", "6759"),
+            IssuerRange.of("maestro", "6761-6763"),
+            // Fleet and fuel. 7-prefixed ranges are private label cards issued by the fuel brands
+            // themselves and they are the bulk of forecourt traffic.
+            IssuerRange.of("fleet", "7"),
+            IssuerRange.of("fleet", "708"),
+            IssuerRange.of("fleet", "70251"),
+            IssuerRange.of("fleet", "70256"),
+            IssuerRange.of("wex", "690046"),
+            IssuerRange.of("wex", "707138"),
+            IssuerRange.of("voyager", "8699"));
 
     static final Pattern CANDIDATE = Pattern.compile("\\d(?:[ -]?\\d){11,22}", Pattern.UNICODE_CHARACTER_CLASS);
 
@@ -45,33 +76,21 @@ public final class Pans {
 
     private Pans() {}
 
-    private static Map<String, List<String>> prefixes() {
-        Map<String, List<String>> out = new LinkedHashMap<>();
-        out.put("visa", List.of("4"));
-        out.put("mastercard", List.of("51", "52", "53", "54", "55", "22", "23", "24", "25", "26", "27"));
-        out.put("amex", List.of("34", "37"));
-        out.put("discover", List.of("6011", "65", "644", "645", "646", "647", "648", "649"));
-        out.put("diners", List.of("300", "301", "302", "303", "304", "305", "36", "38"));
-        out.put("jcb", List.of("35"));
-        out.put("maestro", List.of("50", "56", "57", "58", "6759", "6761", "6762", "6763"));
-        // Fleet and fuel. 7-prefixed ranges are private label cards issued by the fuel brands
-        // themselves and they are the bulk of forecourt traffic.
-        out.put("fleet", List.of("7", "708", "70251", "70256"));
-        out.put("wex", List.of("690046", "707138"));
-        out.put("voyager", List.of("8699"));
-        return java.util.Collections.unmodifiableMap(out);
+    /** The issuer whose range this number falls in, the most specific range winning. */
+    public static Optional<String> brandOf(String digits) {
+        return issuerOf(digits).map(IssuerRange::brand);
     }
 
-    /** The issuer whose range this number falls in, longest prefix wins. */
-    public static Optional<String> brandOf(String digits) {
-        String best = null;
-        int bestLength = -1;
-        for (Map.Entry<String, List<String>> entry : ISSUER_PREFIXES.entrySet()) {
-            for (String prefix : entry.getValue()) {
-                if (digits.startsWith(prefix) && prefix.length() > bestLength) {
-                    best = entry.getKey();
-                    bestLength = prefix.length();
-                }
+    /**
+     * The range this number falls in. The longest prefix wins, and between two of the same length
+     * the narrower range wins, so a co-badged block carved out of a wider one is named for the
+     * scheme that carved it.
+     */
+    public static Optional<IssuerRange> issuerOf(String digits) {
+        IssuerRange best = null;
+        for (IssuerRange range : ISSUER_RANGES) {
+            if (range.covers(digits) && (best == null || range.moreSpecificThan(best))) {
+                best = range;
             }
         }
         return Optional.ofNullable(best);
