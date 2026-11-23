@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.rkaushikdev.trammelworks.Json;
 import io.github.rkaushikdev.trammelworks.NanoTime;
+import io.github.rkaushikdev.trammelworks.archive.StoredRecord;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -18,7 +19,8 @@ class ReportSummaryTest {
             "ingest", IngestSummary.class,
             "ship", ShipSummary.class,
             "spool", SpoolSummary.class,
-            "clock", ClockSummary.class);
+            "clock", ClockSummary.class,
+            "forecourt", ForecourtSummary.class);
 
     static Summary healthy() {
         Summary built = new Summary(SITE, NOW);
@@ -276,6 +278,80 @@ class ReportSummaryTest {
         Summary summary = new Summary(SITE, NOW);
         summary.ship(summary.ship().withBlocked(2));
         assertThat(summary.renderText()).contains(SITE);
+    }
+
+    static StoredRecord stored(String time, Map<String, String> labels) {
+        return new StoredRecord(
+                "k" + time + labels,
+                SITE,
+                "pump-bridge",
+                "standard",
+                io.github.rkaushikdev.trammelworks.Stream.STDOUT,
+                NanoTime.parse("2025-03-04T" + time + "Z"),
+                java.util.Optional.empty(),
+                "unknown",
+                "line",
+                labels,
+                NOW);
+    }
+
+    @Test
+    void theForecourtSectionCountsTheDay() {
+        List<StoredRecord> day = List.of(
+                stored("10:00:00", Map.of("pump", "1", "pump_state", "authorised")),
+                stored("10:00:30", Map.of("pump", "1", "pump_state", "fuelling")),
+                stored("10:02:00", Map.of("pump", "1", "pump_state", "completed")),
+                stored("10:05:00", Map.of("pump", "2", "pump_state", "calling")),
+                stored("10:05:20", Map.of("pump", "2", "pump_state", "fuelling")),
+                stored("10:06:00", Map.of("outcome", "declined", "response", "51")),
+                stored("10:07:00", Map.of("outcome", "host_unavailable", "response", "91")),
+                stored("10:08:00", Map.of("outcome", "approved", "response", "00")));
+        List<StoredRecord> alarms = List.of(
+                stored("01:00:00", Map.of("tank", "1", "alarm", "sudden_loss", "alarm_state", "active")),
+                stored("02:00:00", Map.of("tank", "2", "alarm", "high_water", "alarm_state", "active")),
+                stored("03:00:00", Map.of("tank", "3", "alarm", "leak", "alarm_state", "active")),
+                stored("03:30:00", Map.of("tank", "3", "alarm", "leak", "alarm_state", "clear")));
+        ForecourtSummary found = ForecourtSummary.fromRecords(day, alarms);
+        assertThat(found).isEqualTo(new ForecourtSummary(1, 1, 1, 1, 2, 1));
+        assertThat(found.healthy()).isFalse();
+        assertThat(found.problems())
+                .containsExactly(
+                        "1 environmental tank alarms are standing",
+                        "1 deliveries started without an authorisation",
+                        "the payment host did not answer 1 times");
+        assertThat(found.line()).isEqualTo("1 sales, 1 declines, 2 tank alarms standing");
+    }
+
+    @Test
+    void aStandingHighWaterAlarmIsNotAProblem() {
+        ForecourtSummary found = new ForecourtSummary(40, 3, 0, 0, 1, 0);
+        assertThat(found.healthy()).isTrue();
+        assertThat(found.problems()).isEmpty();
+    }
+
+    @Test
+    void aStandingLeakTurnsTheSummaryToAttention() {
+        Summary built = healthy();
+        built.forecourt(new ForecourtSummary(10, 0, 0, 0, 1, 1));
+        assertThat(built.healthy()).isFalse();
+        assertThat(built.renderText())
+                .contains("ATTENTION")
+                .contains("  forecourt 10 sales, 0 declines, 1 tank alarms standing")
+                .contains("! 1 environmental tank alarms are standing");
+        assertThat(section(built.asDict(), "forecourt")).containsEntry("environmental_standing", 1L);
+    }
+
+    @Test
+    void theSectionsAreListedInTheOrderAnOperatorReads() {
+        assertThat(healthy().sections().keySet()).containsExactly("ingest", "ship", "spool", "clock", "forecourt");
+        assertThat(healthy()
+                        .renderText()
+                        .lines()
+                        .skip(1)
+                        .map(line -> line.substring(0, 12))
+                        .toList())
+                .containsExactly(
+                        "  ingest    ", "  ship      ", "  spool     ", "  clock     ", "  forecourt ", "  archive   ");
     }
 
     @Test

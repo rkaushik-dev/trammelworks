@@ -1,21 +1,12 @@
 package io.github.rkaushikdev.trammelworks.cli;
 
-import io.github.rkaushikdev.trammelworks.NanoTime;
 import io.github.rkaushikdev.trammelworks.SiteConfig;
-import io.github.rkaushikdev.trammelworks.StanchionError;
 import io.github.rkaushikdev.trammelworks.SystemClock;
-import io.github.rkaushikdev.trammelworks.archive.ArchiveDb;
-import io.github.rkaushikdev.trammelworks.archive.ArchiveSettings;
-import io.github.rkaushikdev.trammelworks.archive.Repository;
-import io.github.rkaushikdev.trammelworks.archive.Schema;
 import io.github.rkaushikdev.trammelworks.query.Query;
 import io.github.rkaushikdev.trammelworks.query.SearchResult;
 import io.github.rkaushikdev.trammelworks.report.Render;
 import io.github.rkaushikdev.trammelworks.report.RenderOptions;
 import io.github.rkaushikdev.trammelworks.report.ReportFormat;
-import io.github.rkaushikdev.trammelworks.report.SpoolSummary;
-import io.github.rkaushikdev.trammelworks.spool.Segments;
-import io.github.rkaushikdev.trammelworks.spool.Usage;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -115,27 +106,13 @@ final class ReportCommands {
         public Integer call() {
             CliContext context = root.context();
             SiteConfig config = context.loaded();
-            NanoTime now = new SystemClock().now();
             io.github.rkaushikdev.trammelworks.report.Summary built =
-                    new io.github.rkaushikdev.trammelworks.report.Summary(config.site(), now);
-            Usage usage = Usage.measure(Segments.listSegments(config.spool().path()));
-            built.spool(new SpoolSummary(usage.used(), config.spool().budgetBytes(), usage.segments(), 0));
-            fillArchive(context, built, config.archive());
-            built.check();
+                    io.github.rkaushikdev.trammelworks.report.Summary.fromDisk(
+                            config,
+                            new SystemClock().now(),
+                            exc -> context.warn("the archive could not be read: " + exc.getMessage()));
             context.echo(asJson ? built.renderJson() : built.renderText());
             return Cli.EXIT_OK;
-        }
-
-        private static void fillArchive(
-                CliContext context, io.github.rkaushikdev.trammelworks.report.Summary built, ArchiveSettings settings) {
-            if (!settings.enabled() || !Files.exists(settings.file())) {
-                return;
-            }
-            try (ArchiveDb connection = Schema.openArchive(settings.file(), true)) {
-                built.archived(new Repository(connection).count());
-            } catch (StanchionError exc) {
-                context.warn("the archive could not be read: " + exc.getMessage());
-            }
         }
     }
 }

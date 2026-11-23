@@ -1,5 +1,8 @@
 package io.github.rkaushikdev.trammelworks.report;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * What came in.
  *
@@ -9,7 +12,8 @@ package io.github.rkaushikdev.trammelworks.report;
  * @param rotations spool segments recovered after a restart
  * @param lostBytes bytes lost to those recoveries
  */
-public record IngestSummary(long filesFollowed, long records, long skipped, long rotations, long lostBytes) {
+public record IngestSummary(long filesFollowed, long records, long skipped, long rotations, long lostBytes)
+        implements SummarySection {
 
     /** Nothing counted yet. */
     public IngestSummary() {
@@ -17,8 +21,26 @@ public record IngestSummary(long filesFollowed, long records, long skipped, long
     }
 
     /** Whether anything is being collected at all. */
+    @Override
     public boolean healthy() {
         return filesFollowed > 0;
+    }
+
+    @Override
+    public List<String> problems() {
+        List<String> found = new ArrayList<>();
+        if (!healthy()) {
+            found.add("no container log files are being followed");
+        }
+        if (lostBytes != 0) {
+            found.add(lostBytes + " bytes were lost to rotations");
+        }
+        return found;
+    }
+
+    @Override
+    public String line() {
+        return records + " records from " + filesFollowed + " files";
     }
 
     /** The same, following {@code value} files. */

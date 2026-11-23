@@ -238,7 +238,7 @@ class CliReportTest {
     @Test
     void aSummaryReportsTheSpool() {
         fill();
-        assertThat(invoke("summary").output()).contains("spool   0B of 1MiB");
+        assertThat(invoke("summary").output()).contains("spool     0B of 1MiB");
     }
 
     @Test

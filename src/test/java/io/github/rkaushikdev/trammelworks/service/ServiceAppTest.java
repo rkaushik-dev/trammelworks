@@ -187,6 +187,32 @@ class ServiceAppTest {
     }
 
     @Test
+    void theSummaryReadsTheForecourtOutOfTheArchive() {
+        try (ArchiveDb connection = Schema.openArchive(archiveFile)) {
+            new Repository(connection)
+                    .add(
+                            new LogRecord(
+                                            "US-TX-0417",
+                                            "tank-gauge",
+                                            Stream.STDOUT,
+                                            NanoTime.parse("2025-02-01T09:00:00Z"),
+                                            "T 1:LEAK ALARM")
+                                    .withLabels(Map.of("tank", "1", "alarm", "leak", "alarm_state", "active")),
+                            NOW);
+        }
+        Map<String, Object> payload = get("/summary").payload();
+        assertThat(payload.get("forecourt"))
+                .isEqualTo(Map.of(
+                        "sales", 0L,
+                        "declines", 0L,
+                        "host_unavailable", 0L,
+                        "unauthorised", 0L,
+                        "alarms_standing", 1L,
+                        "environmental_standing", 1L));
+        assertThat(payload.get("problems").toString()).contains("1 environmental tank alarms are standing");
+    }
+
+    @Test
     void theSummaryCarriesTheProblems() {
         // A site with no log root is following nothing, which the summary flags.
         fill();

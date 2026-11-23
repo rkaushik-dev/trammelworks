@@ -2,6 +2,8 @@ package io.github.rkaushikdev.trammelworks.forecourt;
 
 import io.github.rkaushikdev.trammelworks.NanoTime;
 import io.github.rkaushikdev.trammelworks.archive.StoredRecord;
+import io.github.rkaushikdev.trammelworks.query.InSet;
+import io.github.rkaushikdev.trammelworks.query.Node;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -37,6 +39,11 @@ public final class AlarmLog {
         AlarmSpan build(Optional<NanoTime> clearedAt) {
             return new AlarmSpan(tank, alarm, raisedAt, clearedAt, repeats);
         }
+    }
+
+    /** The filter that finds alarm records: every tank gauge line that named an alarm carries a state. */
+    public static Node filter() {
+        return new InSet("label." + TankAlarm.STATE_LABEL, List.of(TankAlarm.ACTIVE, TankAlarm.CLEAR));
     }
 
     /** Replay archived records, in corrected time order, keeping only those carrying an alarm. */

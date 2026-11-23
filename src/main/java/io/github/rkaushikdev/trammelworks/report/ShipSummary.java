@@ -1,5 +1,10 @@
 package io.github.rkaushikdev.trammelworks.report;
 
+import io.github.rkaushikdev.trammelworks.Repr;
+import io.github.rkaushikdev.trammelworks.Units;
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * What went out.
  *
@@ -20,7 +25,8 @@ public record ShipSummary(
         long terminal,
         long meterUsed,
         long meterAllowance,
-        long blocked) {
+        long blocked)
+        implements SummarySection {
 
     /** Nothing counted yet, against an allowance of one byte. */
     public ShipSummary() {
@@ -33,8 +39,27 @@ public record ShipSummary(
     }
 
     /** Whether nothing was refused and the allowance is not nearly gone. */
+    @Override
     public boolean healthy() {
         return terminal == 0 && meterRatio() < 0.9;
+    }
+
+    @Override
+    public List<String> problems() {
+        List<String> found = new ArrayList<>();
+        if (terminal != 0) {
+            found.add(terminal + " batches were refused outright");
+        }
+        if (meterRatio() >= 0.9) {
+            found.add("the monthly allowance is " + Repr.fixed(100 * meterRatio(), 0) + "% spent");
+        }
+        return found;
+    }
+
+    @Override
+    public String line() {
+        return records + " records in " + Units.formatBytes(bytesSent) + ", meter " + Repr.fixed(100 * meterRatio(), 1)
+                + "%";
     }
 
     /** The same, with {@code value} batches refused outright. */

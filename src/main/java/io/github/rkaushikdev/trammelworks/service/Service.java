@@ -14,10 +14,7 @@ import io.github.rkaushikdev.trammelworks.query.Execute;
 import io.github.rkaushikdev.trammelworks.query.Parser;
 import io.github.rkaushikdev.trammelworks.query.Query;
 import io.github.rkaushikdev.trammelworks.query.SearchResult;
-import io.github.rkaushikdev.trammelworks.report.SpoolSummary;
 import io.github.rkaushikdev.trammelworks.report.Summary;
-import io.github.rkaushikdev.trammelworks.spool.Segments;
-import io.github.rkaushikdev.trammelworks.spool.Usage;
 import java.nio.file.Files;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -107,15 +104,9 @@ public final class Service {
 
     /** The nightly summary, built from what is on disk. */
     public ServiceResponse summary(ServiceRequest request) {
-        Summary built = new Summary(config.site(), now);
-        Usage usage = Usage.measure(Segments.listSegments(config.spool().path()));
-        built.spool(new SpoolSummary(usage.used(), config.spool().budgetBytes(), usage.segments(), 0));
-        if (config.archive().enabled() && Files.exists(config.archive().file())) {
-            try (ArchiveDb connection = Schema.openArchive(config.archive().file(), true)) {
-                built.archived(new Repository(connection).count());
-            }
-        }
-        built.check();
+        Summary built = Summary.fromDisk(config, now, exc -> {
+            throw exc;
+        });
         return new ServiceResponse(200, built.asDict());
     }
 

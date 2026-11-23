@@ -2,15 +2,29 @@ package io.github.rkaushikdev.trammelworks.report;
 
 import io.github.rkaushikdev.trammelworks.Json;
 import io.github.rkaushikdev.trammelworks.NanoTime;
-import io.github.rkaushikdev.trammelworks.Repr;
-import io.github.rkaushikdev.trammelworks.Units;
+import io.github.rkaushikdev.trammelworks.SiteConfig;
+import io.github.rkaushikdev.trammelworks.StanchionError;
+import io.github.rkaushikdev.trammelworks.archive.ArchiveDb;
+import io.github.rkaushikdev.trammelworks.archive.ArchiveSettings;
+import io.github.rkaushikdev.trammelworks.archive.Repository;
+import io.github.rkaushikdev.trammelworks.archive.Schema;
+import io.github.rkaushikdev.trammelworks.archive.StoredRecord;
+import io.github.rkaushikdev.trammelworks.forecourt.AlarmLog;
+import io.github.rkaushikdev.trammelworks.query.Execute;
+import io.github.rkaushikdev.trammelworks.query.Query;
+import io.github.rkaushikdev.trammelworks.query.Since;
+import io.github.rkaushikdev.trammelworks.spool.Segments;
+import io.github.rkaushikdev.trammelworks.spool.Usage;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.RecordComponent;
+import java.nio.file.Files;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.function.Consumer;
 
 /**
  * The nightly summary: one site, one day.
@@ -30,12 +44,16 @@ public final class Summary {
     public static final Map<String, String> FIELD_NAMES =
             Map.of("files_followed", "files", "bytes_sent", "bytes", "unknown_records", "unknown");
 
+    /** How wide the section names are in the text form, the longest and a space. */
+    static final int TEXT_NAME_WIDTH = "forecourt".length() + 1;
+
     private final String site;
     private final NanoTime at;
     private IngestSummary ingest = new IngestSummary();
     private ShipSummary ship = new ShipSummary();
     private SpoolSummary spool = new SpoolSummary();
     private ClockSummary clock = new ClockSummary();
+    private ForecourtSummary forecourt = new ForecourtSummary();
     private Map<String, Long> redacted = new LinkedHashMap<>();
     private long archived;
     private List<String> problems = new ArrayList<>();
@@ -123,6 +141,37 @@ public final class Summary {
         return metrics.getOrDefault(name, 0L);
     }
 
+    /** How far back the forecourt section reads, which is what "nightly" means. */
+    public static final Duration FORECOURT_WINDOW = Duration.ofHours(24);
+
+    /**
+     * The summary of what is on disk: the spool as it stands, and the archive's record count and
+     * the last day of the forecourt. An archive that cannot be read is handed to {@code
+     * unreadable} and the rest of the summary is still built: a site whose archive is broken is
+     * exactly the site whose summary somebody needs.
+     */
+    public static Summary fromDisk(SiteConfig config, NanoTime now, Consumer<StanchionError> unreadable) {
+        Summary built = new Summary(config.site(), now);
+        Usage usage = Usage.measure(Segments.listSegments(config.spool().path()));
+        built.spool(new SpoolSummary(usage.used(), config.spool().budgetBytes(), usage.segments(), 0));
+        ArchiveSettings settings = config.archive();
+        if (settings.enabled() && Files.exists(settings.file())) {
+            try (ArchiveDb connection = Schema.openArchive(settings.file(), true)) {
+                built.archived(new Repository(connection).count());
+                Since dayStart = new Since(now.epochNs() - FORECOURT_WINDOW.toNanos());
+                List<StoredRecord> day =
+                        Execute.search(connection, Query.of(dayStart)).records();
+                List<StoredRecord> alarms =
+                        Execute.search(connection, Query.of(AlarmLog.filter())).records();
+                built.forecourt(ForecourtSummary.fromRecords(day, alarms));
+            } catch (StanchionError exc) {
+                unreadable.accept(exc);
+            }
+        }
+        built.check();
+        return built;
+    }
+
     /** The site. */
     public String site() {
         return site;
@@ -173,6 +222,27 @@ public final class Summary {
         clock = value;
     }
 
+    /** What happened on the forecourt. */
+    public ForecourtSummary forecourt() {
+        return forecourt;
+    }
+
+    /** Replace what happened on the forecourt. */
+    public void forecourt(ForecourtSummary value) {
+        forecourt = value;
+    }
+
+    /** Every section by the name its JSON and its text line carry, in the order an operator reads. */
+    public Map<String, SummarySection> sections() {
+        Map<String, SummarySection> out = new LinkedHashMap<>();
+        out.put("ingest", ingest);
+        out.put("ship", ship);
+        out.put("spool", spool);
+        out.put("clock", clock);
+        out.put("forecourt", forecourt);
+        return out;
+    }
+
     /** Values removed by redaction, by rule. */
     public Map<String, Long> redacted() {
         return redacted;
@@ -200,33 +270,13 @@ public final class Summary {
 
     /** Whether there is nothing to tell an operator. */
     public boolean healthy() {
-        return problems.isEmpty() && ingest.healthy() && ship.healthy() && spool.healthy() && clock.healthy();
+        return problems.isEmpty() && sections().values().stream().allMatch(SummarySection::healthy);
     }
 
-    /** Find what an operator would want telling, and keep it as the problems. */
+    /** Find what an operator would want telling, section by section, and keep it as the problems. */
     public List<String> check() {
         List<String> found = new ArrayList<>();
-        if (!ingest.healthy()) {
-            found.add("no container log files are being followed");
-        }
-        if (ship.terminal() != 0) {
-            found.add(ship.terminal() + " batches were refused outright");
-        }
-        if (ship.meterRatio() >= 0.9) {
-            found.add("the monthly allowance is " + Repr.fixed(100 * ship.meterRatio(), 0) + "% spent");
-        }
-        if (spool.evicted() != 0) {
-            found.add(spool.evicted() + " spool segments were evicted unsent");
-        }
-        if (spool.ratio() >= 0.8) {
-            found.add("the spool is " + Repr.fixed(100 * spool.ratio(), 0) + "% full");
-        }
-        if (clock.syncs() == 0) {
-            found.add("the clock has not been corrected in this boot");
-        }
-        if (ingest.lostBytes() != 0) {
-            found.add(ingest.lostBytes() + " bytes were lost to rotations");
-        }
+        sections().values().forEach(section -> found.addAll(section.problems()));
         problems = found;
         return List.copyOf(found);
     }
@@ -237,10 +287,7 @@ public final class Summary {
         out.put("site", site);
         out.put("at", at.isoformat());
         out.put("healthy", healthy());
-        out.put("ingest", sectionDict(ingest));
-        out.put("ship", sectionDict(ship));
-        out.put("spool", sectionDict(spool));
-        out.put("clock", sectionDict(clock));
+        sections().forEach((name, section) -> out.put(name, sectionDict((Record) section)));
         Map<String, Long> sorted = new TreeMap<>(Json::compareCodePoints);
         sorted.putAll(redacted);
         out.put("redacted", new LinkedHashMap<>(sorted));
@@ -254,22 +301,21 @@ public final class Summary {
         return Json.dumps(asDict(), Json.Style.indented(1));
     }
 
+    private static String textLine(String name, String body) {
+        return "  " + name + " ".repeat(TEXT_NAME_WIDTH - name.length()) + body;
+    }
+
     /** The text form, checking first so the problems are current. */
     public String renderText() {
         check();
         String state = healthy() ? "ok" : "ATTENTION";
         List<String> lines = new ArrayList<>();
         lines.add(site + " " + at.isoformat() + " " + state);
-        lines.add("  ingest  " + ingest.records() + " records from " + ingest.filesFollowed() + " files");
-        lines.add("  ship    " + ship.records() + " records in " + Units.formatBytes(ship.bytesSent()) + ", meter "
-                + Repr.fixed(100 * ship.meterRatio(), 1) + "%");
-        lines.add("  spool   " + Units.formatBytes(spool.used()) + " of " + Units.formatBytes(spool.limit()) + " in "
-                + spool.segments() + " segments");
-        lines.add("  clock   " + clock.syncs() + " syncs, drift " + clock.driftMs() + " ms");
-        lines.add("  archive " + archived + " records kept");
+        sections().forEach((name, section) -> lines.add(textLine(name, section.line())));
+        lines.add(textLine("archive", archived + " records kept"));
         if (!redacted.isEmpty()) {
             long total = redacted.values().stream().mapToLong(Long::longValue).sum();
-            lines.add("  redact  " + total + " removed across " + redacted.size() + " rules");
+            lines.add(textLine("redact", total + " removed across " + redacted.size() + " rules"));
         }
         for (String problem : problems) {
             lines.add("  ! " + problem);

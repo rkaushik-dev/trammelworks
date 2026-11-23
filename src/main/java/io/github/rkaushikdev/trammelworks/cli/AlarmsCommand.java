@@ -6,9 +6,7 @@ import io.github.rkaushikdev.trammelworks.Units;
 import io.github.rkaushikdev.trammelworks.forecourt.AlarmLog;
 import io.github.rkaushikdev.trammelworks.forecourt.AlarmSeverity;
 import io.github.rkaushikdev.trammelworks.forecourt.AlarmSpan;
-import io.github.rkaushikdev.trammelworks.forecourt.TankAlarm;
 import io.github.rkaushikdev.trammelworks.query.And;
-import io.github.rkaushikdev.trammelworks.query.InSet;
 import io.github.rkaushikdev.trammelworks.query.Node;
 import io.github.rkaushikdev.trammelworks.query.Query;
 import io.github.rkaushikdev.trammelworks.query.SearchResult;
@@ -43,9 +41,9 @@ final class AlarmsCommand implements Callable<Integer> {
     @Option(names = "--open", description = "Only the alarms still standing.")
     boolean openOnly;
 
-    /** Only alarm records: a tank gauge line that named an alarm carries its state. */
+    /** Only alarm records, narrowed by whatever was typed. */
     static Query alarmsOnly(Query typed) {
-        Node alarms = new InSet("label." + TankAlarm.STATE_LABEL, List.of(TankAlarm.ACTIVE, TankAlarm.CLEAR));
+        Node alarms = AlarmLog.filter();
         return new Query(
                 Optional.of(
                         typed.where().<Node>map(node -> new And(node, alarms)).orElse(alarms)),
