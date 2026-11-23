@@ -41,6 +41,8 @@ class ConfigfileTest {
               max_deletes: 50000
               path: /var/lib/stanchion/archive/records.sqlite3
               sweep_every: 21600.0
+            forecourt:
+              roles: {}
             ingest:
               log_root: /var/log/pods
               max_line_bytes: 1048576
@@ -259,6 +261,8 @@ class ConfigfileTest {
             + "  max_deletes: 50000\n"
             + "  path: /var/lib/stanchion/archive/records.sqlite3\n"
             + "  sweep_every: 21600.0\n"
+            + "forecourt:\n"
+            + "  roles: {}\n"
             + "ingest:\n"
             + "  log_root: /var/log/containers\n"
             + "  max_line_bytes: 1048576\n"

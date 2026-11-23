@@ -111,6 +111,13 @@ ship:
     standard: 0.3
     chatter: 0.1
 
+forecourt:
+  # Roles for containers this site named differently from the reference
+  # build. pump-bridge, payment-kernel, emv-kernel, tank-gauge and price-sign
+  # need no entry.
+  roles:
+    fcc-bridge: dispenser
+
 labels:
   estate: southwest
   brand: forecourt-one

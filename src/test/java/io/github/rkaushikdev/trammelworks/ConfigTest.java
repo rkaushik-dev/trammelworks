@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
+import io.github.rkaushikdev.trammelworks.forecourt.ForecourtConfig;
+import io.github.rkaushikdev.trammelworks.forecourt.Role;
 import io.github.rkaushikdev.trammelworks.ingest.MultilineRule;
 import io.github.rkaushikdev.trammelworks.redact.RedactConfig;
 import java.time.Duration;
@@ -118,6 +120,17 @@ class ConfigTest {
         ship.put("attempt_timeout", Repr.of((Double) ship.get("attempt_timeout")) + "s");
         ship.put("interval", Repr.of((Double) ship.get("interval")) + "s");
         assertThat(SiteConfig.siteFromMapping(payload)).isEqualTo(cfg);
+    }
+
+    @Test
+    void forecourtRolesRoundTripThroughTheMappingBuilder() {
+        SiteConfig cfg = SiteConfig.builder("US-TX-0417")
+                .forecourt(new ForecourtConfig(Map.of("fcc", Role.DISPENSER)))
+                .build();
+        SiteConfig back = SiteConfig.siteFromMapping(
+                Maps.of("site", "US-TX-0417", "forecourt", cfg.forecourt().asDict()));
+        assertThat(back.forecourt()).isEqualTo(cfg.forecourt());
+        assertThat(cfg.toBuilder().build().forecourt().roleOf("fcc")).isSameAs(Role.DISPENSER);
     }
 
     @Test

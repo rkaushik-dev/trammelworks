@@ -1,8 +1,8 @@
 package io.github.rkaushikdev.trammelworks;
 
 import io.github.rkaushikdev.trammelworks.archive.ArchiveSettings;
+import io.github.rkaushikdev.trammelworks.forecourt.ForecourtConfig;
 import io.github.rkaushikdev.trammelworks.redact.RedactConfig;
-import io.github.rkaushikdev.trammelworks.redact.Rule;
 import io.github.rkaushikdev.trammelworks.ship.ShipSettings;
 import io.github.rkaushikdev.trammelworks.spool.SpoolSettings;
 import java.util.LinkedHashMap;
@@ -24,10 +24,12 @@ public record SiteConfig(
         ShipSettings ship,
         RedactConfig redact,
         ArchiveSettings archive,
+        ForecourtConfig forecourt,
         Map<String, String> labels) {
 
     /** The top level sections a config may carry. */
-    public static final Set<String> SECTIONS = Set.of("site", "ingest", "spool", "ship", "redact", "archive", "labels");
+    public static final Set<String> SECTIONS =
+            Set.of("site", "ingest", "spool", "ship", "redact", "archive", "forecourt", "labels");
 
     /** Normalizes the site id and checks the sections against each other. */
     public SiteConfig {
@@ -60,21 +62,15 @@ public record SiteConfig(
                 .ship(ship)
                 .redact(redact)
                 .archive(archive)
+                .forecourt(forecourt)
                 .labels(labels);
     }
 
-    /** The config as plain values, in the shape the file is written in. */
+    /**
+     * The config as plain values, in the shape the file is written in. The redact and forecourt
+     * sections write themselves, since they hold nested blocks only they know the shape of.
+     */
     public Map<String, Object> asDict() {
-        Map<String, Object> rules = new LinkedHashMap<>();
-        for (Rule rule : redact.rules()) {
-            rules.put(
-                    rule.name(),
-                    Maps.of(
-                            "pattern", rule.pattern(),
-                            "action", rule.action().value(),
-                            "keep_first", rule.keepFirst(),
-                            "keep_last", rule.keepLast()));
-        }
         return Maps.of(
                 "site",
                 site,
@@ -86,11 +82,7 @@ public record SiteConfig(
                         "max_line_bytes", ingest.maxLineBytes(),
                         "units", List.copyOf(ingest.units())),
                 "redact",
-                Maps.of(
-                        "enabled", redact.enabled(),
-                        "keep_first", redact.keepFirst(),
-                        "keep_last", redact.keepLast(),
-                        "rules", rules),
+                redact.asDict(),
                 "spool",
                 Maps.of(
                         "directory", spool.directory(),
@@ -116,6 +108,8 @@ public record SiteConfig(
                         "max_bytes", archive.maxBytes(),
                         "max_deletes", archive.maxDeletes(),
                         "sweep_every", Units.totalSeconds(archive.sweepEvery())),
+                "forecourt",
+                forecourt.asDict(),
                 "labels",
                 new LinkedHashMap<>(labels));
     }
@@ -132,6 +126,7 @@ public record SiteConfig(
                 .ship(ShipSettings.shipSettingsFromMapping(Sections.section(raw, "ship", "config")))
                 .redact(RedactConfig.redactFromMapping(Sections.section(raw, "redact", "config")))
                 .archive(ArchiveSettings.archiveSettingsFromMapping(Sections.section(raw, "archive", "config")))
+                .forecourt(ForecourtConfig.forecourtFromMapping(Sections.section(raw, "forecourt", "config")))
                 .labels(labels)
                 .build();
     }
@@ -144,6 +139,7 @@ public record SiteConfig(
         private ShipSettings ship = new ShipSettings();
         private RedactConfig redact = new RedactConfig();
         private ArchiveSettings archive = new ArchiveSettings();
+        private ForecourtConfig forecourt = new ForecourtConfig();
         private Map<String, String> labels = Map.of();
 
         private Builder(String site) {
@@ -180,6 +176,12 @@ public record SiteConfig(
             return this;
         }
 
+        /** Which container plays which part on the forecourt. */
+        public Builder forecourt(ForecourtConfig value) {
+            forecourt = value;
+            return this;
+        }
+
         /** Labels stamped on every record. */
         public Builder labels(Map<String, String> value) {
             labels = value;
@@ -188,7 +190,7 @@ public record SiteConfig(
 
         /** The validated config. */
         public SiteConfig build() {
-            return new SiteConfig(site, ingest, spool, ship, redact, archive, labels);
+            return new SiteConfig(site, ingest, spool, ship, redact, archive, forecourt, labels);
         }
     }
 }

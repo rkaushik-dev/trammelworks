@@ -2,8 +2,10 @@ package io.github.rkaushikdev.trammelworks.redact;
 
 import io.github.rkaushikdev.trammelworks.Coerce;
 import io.github.rkaushikdev.trammelworks.ConfigError;
+import io.github.rkaushikdev.trammelworks.Maps;
 import io.github.rkaushikdev.trammelworks.Sections;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -79,6 +81,21 @@ public record RedactConfig(boolean enabled, int keepFirst, int keepLast, List<Ru
     /** The site rules' names, in order. */
     public List<String> ruleNames() {
         return rules.stream().map(Rule::name).toList();
+    }
+
+    /** The section as the config file writes it, rules in their order. */
+    public Map<String, Object> asDict() {
+        Map<String, Object> written = new LinkedHashMap<>();
+        for (Rule rule : rules) {
+            written.put(
+                    rule.name(),
+                    Maps.of(
+                            "pattern", rule.pattern(),
+                            "action", rule.action().value(),
+                            "keep_first", rule.keepFirst(),
+                            "keep_last", rule.keepLast()));
+        }
+        return Maps.of("enabled", enabled, "keep_first", keepFirst, "keep_last", keepLast, "rules", written);
     }
 
     /** A one line description, for the doctor command. */

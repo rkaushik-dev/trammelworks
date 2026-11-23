@@ -8,6 +8,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.github.rkaushikdev.trammelworks.archive.ArchiveSettings;
 import io.github.rkaushikdev.trammelworks.archive.Repository;
 import io.github.rkaushikdev.trammelworks.archive.StoredRecord;
+import io.github.rkaushikdev.trammelworks.forecourt.ForecourtConfig;
+import io.github.rkaushikdev.trammelworks.forecourt.Role;
 import io.github.rkaushikdev.trammelworks.redact.RedactConfig;
 import io.github.rkaushikdev.trammelworks.ship.FileTransport;
 import io.github.rkaushikdev.trammelworks.ship.HttpTransport;
@@ -331,6 +333,30 @@ class SiteTest {
         site.open();
         assertThat(site.collect().archived()).isEqualTo(1);
         assertThat(archiveOf(site).count()).isEqualTo(1);
+    }
+
+    @Test
+    void aDispenserLineIsArchivedWithItsFuellingPoint() {
+        tree.writeCri("pump-bridge", List.of(criFull(TS, "FP03 AUTHORISED grade 2")));
+        Site site = build(new MemoryTransport());
+        site.open();
+        site.collect();
+        List<StoredRecord> found =
+                archiveOf(site).between(NanoTime.parse("2025-03-04T00:00:00Z"), NanoTime.parse("2025-03-05T00:00:00Z"));
+        assertThat(found.get(0).labels()).containsEntry("pump", "3");
+        assertThat(site.snapshot()).containsEntry("forecourt_tagged", 1L);
+    }
+
+    @Test
+    void aSiteNamedRoleIsReadByTheTagger() {
+        tree.writeCri("fcc", List.of(criFull(TS, "pump=7 nozzle lifted")));
+        Site site = build(
+                new MemoryTransport(), over -> over.forecourt(new ForecourtConfig(Map.of("fcc", Role.DISPENSER))));
+        site.open();
+        site.collect();
+        List<StoredRecord> found =
+                archiveOf(site).between(NanoTime.parse("2025-03-04T00:00:00Z"), NanoTime.parse("2025-03-05T00:00:00Z"));
+        assertThat(found.get(0).labels()).containsEntry("pump", "7");
     }
 
     @Test

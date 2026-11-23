@@ -13,6 +13,7 @@ import io.github.rkaushikdev.trammelworks.clockfix.ClockStore;
 import io.github.rkaushikdev.trammelworks.clockfix.Reconciler;
 import io.github.rkaushikdev.trammelworks.clockfix.SessionLedger;
 import io.github.rkaushikdev.trammelworks.clockfix.SyncObserver;
+import io.github.rkaushikdev.trammelworks.forecourt.Tagger;
 import io.github.rkaushikdev.trammelworks.ingest.CheckpointStore;
 import io.github.rkaushikdev.trammelworks.ingest.IngestEngine;
 import io.github.rkaushikdev.trammelworks.ingest.MultilineRule;
@@ -44,7 +45,7 @@ import java.util.TreeMap;
  * <p>This is the piece that says what order things happen in, and the order is the design:
  *
  * <pre>
- * read -&gt; reassemble -&gt; correct the clock -&gt; redact -&gt; spool -&gt; ship
+ * read -&gt; reassemble -&gt; correct the clock -&gt; redact -&gt; tag -&gt; spool -&gt; ship
  * </pre>
  *
  * <p><b>Redaction sits before the spool, not before the ship.</b> The spool is a file on a disk in a
@@ -82,6 +83,7 @@ public final class Site {
     private final Spool spool;
     private final Shipper shipper;
     private final Redactor redactor;
+    private final Tagger tagger;
     private final Reconciler reconciler;
     private final SyncObserver observer;
     private final ClockStore clockStore;
@@ -106,6 +108,7 @@ public final class Site {
         this.observer = new SyncObserver(ledger, boot.bootId());
         this.reconciler = new Reconciler(ledger, boot.bootId(), clock);
         this.redactor = Redactor.of(config.redact());
+        this.tagger = new Tagger(config.forecourt());
         Map<String, MultilineRule> rules = new LinkedHashMap<>();
         for (MultilineRule rule : config.ingest().multiline()) {
             rules.put(rule.unit(), rule);
@@ -223,6 +226,11 @@ public final class Site {
         return redactor;
     }
 
+    /** What reads the forecourt facts off each line. */
+    public Tagger tagger() {
+        return tagger;
+    }
+
     /** Clock correction. */
     public Reconciler reconciler() {
         return reconciler;
@@ -313,10 +321,12 @@ public final class Site {
         for (LogRecord record : records) {
             observer.look(record);
             LogRecord corrected = reconciler.reconcile(record);
-            LogRecord cleaned = redactor.redact(corrected);
-            if (cleaned != corrected) {
+            LogRecord redacted = redactor.redact(corrected);
+            if (redacted != corrected) {
                 report.redactedOne();
             }
+            // Tagged after redaction, so a label can only ever be read off text that is clean.
+            LogRecord cleaned = tagger.tag(redacted);
             cleanedAll.add(cleaned);
             try {
                 spool.append(cleaned);
@@ -424,6 +434,7 @@ public final class Site {
         found.put("redact_changed", redactor.audit().changed());
         found.put("redact_removed", redactor.audit().totalHits());
         found.put("clock_syncs", (long) observer.filed());
+        found.put("forecourt_tagged", tagger.tagged());
         if (archive != null) {
             found.put("archive_records", archive.count());
             Footprint footprint = Space.measure(archive.db(), config.archive().file());
