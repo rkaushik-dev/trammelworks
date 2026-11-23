@@ -2,6 +2,7 @@ package io.github.rkaushikdev.trammelworks.cli;
 
 import io.github.rkaushikdev.trammelworks.NanoTime;
 import io.github.rkaushikdev.trammelworks.Units;
+import io.github.rkaushikdev.trammelworks.forecourt.ResponseCode;
 import io.github.rkaushikdev.trammelworks.query.Aggregate;
 import io.github.rkaushikdev.trammelworks.query.Group;
 import io.github.rkaushikdev.trammelworks.query.Query;
@@ -29,7 +30,7 @@ final class CountCommand implements Callable<Integer> {
     @Parameters(index = "0", arity = "0..1", defaultValue = "", paramLabel = "FILTER", description = "The filter.")
     String filterText;
 
-    @Option(names = "--by", description = "Group by one of: class, confidence, site, stream, unit.")
+    @Option(names = "--by", description = "Group by one of: class, confidence, site, stream, unit, or any label.x.")
     String group;
 
     @Option(names = "--every", description = "Group into time buckets of this width.")
@@ -59,19 +60,38 @@ final class CountCommand implements Callable<Integer> {
         return "#".repeat((int) Math.min(filled, width));
     }
 
+    /** The group grouped by response code: the code is no use to a manager without its meaning. */
+    static final String RESPONSE_GROUP = "label." + ResponseCode.LABEL;
+
     static String renderGroup(Group item, long largest, boolean asTime) {
+        return renderGroup(item, largest, asTime, false);
+    }
+
+    static String renderGroup(Group item, long largest, boolean asTime, boolean responses) {
         String key = asTime ? new NanoTime(Long.parseLong(item.key())).isoformat() : item.key();
-        return Columns.left(key, KEY_WIDTH) + " " + Columns.right(item.count(), 8) + "  " + bar(item.count(), largest);
+        String line =
+                Columns.left(key, KEY_WIDTH) + " " + Columns.right(item.count(), 8) + "  " + bar(item.count(), largest);
+        if (responses && !item.key().equals(Aggregate.NO_VALUE)) {
+            ResponseCode code = ResponseCode.of(item.key());
+            line = Columns.left(line, KEY_WIDTH + 10 + BAR_WIDTH) + "  " + code.meaning() + ", " + code.outcome();
+        }
+        return line;
     }
 
     static List<String> render(Tally tally, boolean asTime) {
+        return render(tally, asTime, false);
+    }
+
+    static List<String> render(Tally tally, boolean asTime, boolean responses) {
         long largest = tally.largest().map(Group::count).orElse(0L);
         List<Group> ordered = asTime
                 ? tally.groups().stream()
                         .sorted(Comparator.comparingLong(item -> Long.parseLong(item.key())))
                         .toList()
                 : tally.groups();
-        return ordered.stream().map(item -> renderGroup(item, largest, asTime)).toList();
+        return ordered.stream()
+                .map(item -> renderGroup(item, largest, asTime, responses))
+                .toList();
     }
 
     @Override
@@ -91,7 +111,9 @@ final class CountCommand implements Callable<Integer> {
             context.echo("nothing matched");
             return Cli.EXIT_OK;
         }
-        render(tally, width != null).forEach(context::echo);
+        boolean responses =
+                width == null && group != null && Aggregate.checkGroup(group).equals(RESPONSE_GROUP);
+        render(tally, width != null, responses).forEach(context::echo);
         context.echo(tally.total() + " records in " + tally.groups().size() + " groups");
         if (tally.truncated()) {
             context.warn("stopped after scanning " + tally.scanned() + " rows, narrow the filter");

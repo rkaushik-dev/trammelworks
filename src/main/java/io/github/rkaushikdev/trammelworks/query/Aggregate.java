@@ -12,6 +12,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.function.Function;
 
 /**
  * Counting matches instead of listing them.
@@ -27,6 +28,10 @@ import java.util.Set;
  *
  * <p>Time buckets are counted from an origin rather than from the first record, so two reports run
  * an hour apart line up.
+ *
+ * <p>A count may also be grouped by a label, {@code label.response} or {@code label.pump}, which is
+ * how a forecourt asks "declines by response code" or "which pump keeps faulting". Labels are held
+ * as JSON in the archive, so a label grouping is always tallied in memory.
  */
 public final class Aggregate {
 
@@ -52,9 +57,12 @@ public final class Aggregate {
 
     private Aggregate() {}
 
-    /** Validate a grouping field. */
+    /** Validate a grouping field: one of {@link #GROUPABLE}, or any label. */
     public static String checkGroup(String name) {
         String cleaned = Text.strip(name).toLowerCase(Locale.ROOT);
+        if (cleaned.startsWith(Ast.LABEL_PREFIX)) {
+            return Ast.checkField(cleaned);
+        }
         if (!GROUPABLE.contains(cleaned)) {
             throw new QueryError("cannot group by this field", name);
         }
@@ -95,10 +103,14 @@ public final class Aggregate {
     public static Tally countBy(ArchiveDb connection, Query query, String group, int ceiling) {
         String name = checkGroup(group);
         Plan built = Plan.plan(query);
-        if (built.fullyPushed()) {
+        if (built.fullyPushed() && Plan.COLUMNS.containsKey(name)) {
             return countInDatabase(connection, built, Plan.COLUMNS.get(name));
         }
-        return countInMemory(connection, query, ceiling, name, 0);
+        return countInMemory(
+                connection,
+                query,
+                ceiling,
+                record -> groupKey(Evaluate.fieldValue(record, name).orElse("")));
     }
 
     /** Count matching records into equal time buckets, under the default ceiling. */
@@ -117,7 +129,11 @@ public final class Aggregate {
             String column = "CAST(" + Plan.TIME_COLUMN + " / " + width + " AS INTEGER) * " + width;
             return countInDatabase(connection, built, column);
         }
-        return countInMemory(connection, query, ceiling, null, width);
+        return countInMemory(
+                connection,
+                query,
+                ceiling,
+                record -> Long.toString(bucketOf(record.bestAt().epochNs(), width)));
     }
 
     private static Tally countInDatabase(ArchiveDb connection, Plan built, String column) {
@@ -145,7 +161,8 @@ public final class Aggregate {
      * Read the rows and tally them here, because SQL cannot be trusted to. This is the path a label
      * predicate forces: the residual has to be applied per record before anything is counted.
      */
-    private static Tally countInMemory(ArchiveDb connection, Query query, int ceiling, String group, long widthNs) {
+    private static Tally countInMemory(
+            ArchiveDb connection, Query query, int ceiling, Function<StoredRecord, String> keyOf) {
         if (ceiling < 1) {
             throw new QueryError("scan ceiling must be at least one", Integer.toString(ceiling));
         }
@@ -168,11 +185,7 @@ public final class Aggregate {
                 tally.drop();
                 continue;
             }
-            long atNs = record.bestAt().epochNs();
-            String key = group == null
-                    ? Long.toString(bucketOf(atNs, widthNs))
-                    : groupKey(Evaluate.fieldValue(record, group).orElse(""));
-            counter.add(key, atNs);
+            counter.add(keyOf.apply(record), record.bestAt().epochNs());
         }
         List<Group> groups = counter.groups();
         tally.groups(groups.size() > MAX_GROUPS ? groups.subList(0, MAX_GROUPS) : groups);

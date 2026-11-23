@@ -134,6 +134,32 @@ class CliCountTest {
     }
 
     @Test
+    void responseCodesAreCountedWithWhatTheyMean() {
+        try (ArchiveDb connection = Schema.openArchive(archivePath)) {
+            Repository repo = new Repository(connection, TABLE);
+            add(repo, "payment-kernel", 0, Map.of("response", "51", "outcome", "declined"));
+            add(repo, "payment-kernel", 1, Map.of("response", "51", "outcome", "declined"));
+            add(repo, "payment-kernel", 2, Map.of("response", "00", "outcome", "approved"));
+            add(repo, "pump-bridge", 2, Map.of());
+        }
+        CliRunner.Result result = invoke("--by", "label.response", "unit = payment-kernel");
+        assertThat(result.exitCode()).isZero();
+        assertThat(result.stdout().lines().toList())
+                .anyMatch(line -> line.startsWith("51 ") && line.endsWith("insufficient funds, declined"))
+                .anyMatch(line -> line.startsWith("00 ") && line.endsWith("approved, approved"))
+                .contains("3 records in 2 groups");
+    }
+
+    @Test
+    void anOrdinaryLabelIsCountedPlain() {
+        fill();
+        CliRunner.Result result = invoke("--by", "label.lane");
+        assertThat(result.stdout().lines().toList())
+                .anyMatch(line -> line.startsWith("2 ") && line.endsWith(CountCommand.bar(2, 6)))
+                .anyMatch(line -> line.startsWith("(none) ") && line.endsWith("#".repeat(CountCommand.BAR_WIDTH)));
+    }
+
+    @Test
     void anUnknownGroupIsRefused() {
         fill();
         CliRunner.Result result = invoke("--by", "message");

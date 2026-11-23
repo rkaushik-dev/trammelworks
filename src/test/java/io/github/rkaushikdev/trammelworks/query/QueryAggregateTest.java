@@ -103,10 +103,26 @@ class QueryAggregateTest {
     }
 
     @Test
-    void groupingByALabelIsRefused() {
-        assertThatThrownBy(() -> Aggregate.checkGroup("label.lane"))
+    void groupingByALabelWithNoNameIsRefused() {
+        assertThatThrownBy(() -> Aggregate.checkGroup("label."))
                 .isInstanceOf(QueryError.class)
-                .hasMessageContaining("cannot group by");
+                .hasMessageContaining("a label needs a name");
+        assertThat(Aggregate.checkGroup(" Label.Lane ")).isEqualTo("label.lane");
+    }
+
+    @Test
+    void aCountByLabelIsTalliedInMemoryEvenForAPushedFilter() {
+        fill();
+        Tally tally = Aggregate.countBy(connection, q("unit = price-sign"), "label.lane");
+        assertThat(asMap(tally)).isEqualTo(Map.of("2", 3L));
+        assertThat(tally.scanned()).isEqualTo(3);
+    }
+
+    @Test
+    void recordsWithoutTheLabelAreCountedAsNone() {
+        fill();
+        Map<String, Long> found = asMap(Aggregate.countBy(connection, new Query(), "label.lane"));
+        assertThat(found).containsEntry("2", 4L).containsEntry(Aggregate.NO_VALUE, 6L);
     }
 
     @Test
