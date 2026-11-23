@@ -1,6 +1,5 @@
 package io.github.rkaushikdev.trammelworks.forecourt;
 
-import java.math.BigDecimal;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.regex.Matcher;
@@ -44,11 +43,6 @@ public record AuthStage(String stage, String amount, String reference) {
             Pattern.compile("(?i)(?<![A-Za-z])(pre-?auth(?:orisation|orization)?|completion)(?![A-Za-z])"
                     + ".*?\\bamount\\s*[=:]\\s*(\\d{1,7}(?:\\.\\d{1,3})?)(?!\\d)"
                     + ".*?\\bref\\s*[=:#]?\\s*([0-9A-Za-z]{4,20})(?![0-9A-Za-z])");
-
-    /** The amount as a decimal. */
-    public BigDecimal value() {
-        return new BigDecimal(amount);
-    }
 
     /** The half of a sale a payment line reports, when it names both its amount and reference. */
     public static Optional<AuthStage> read(String message) {

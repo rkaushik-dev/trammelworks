@@ -7,31 +7,25 @@ import io.github.rkaushikdev.trammelworks.forecourt.Grade;
 import io.github.rkaushikdev.trammelworks.forecourt.PriceAudit;
 import io.github.rkaushikdev.trammelworks.forecourt.PriceMismatch;
 import io.github.rkaushikdev.trammelworks.query.InSet;
+import io.github.rkaushikdev.trammelworks.query.Node;
 import io.github.rkaushikdev.trammelworks.query.SearchResult;
 import java.util.Arrays;
 import java.util.List;
-import java.util.concurrent.Callable;
 import picocli.CommandLine.Command;
-import picocli.CommandLine.Parameters;
-import picocli.CommandLine.ParentCommand;
 
 /** {@code stanchion prices}: where a pump charged a different price than the sign showed. */
 @Command(name = "prices", description = "List pumps that charged a different price than the sign showed.")
-final class PricesCommand implements Callable<Integer> {
+final class PricesCommand extends ForecourtCommand {
 
     /** Exits with this when a pump and the sign disagreed past the grace period. */
-    static final int EXIT_MISMATCH = 3;
+    static final int EXIT_MISMATCH = EXIT_FOUND;
 
-    @ParentCommand
-    Cli root;
-
-    @Parameters(
-            index = "0",
-            arity = "0..1",
-            defaultValue = "",
-            paramLabel = "FILTER",
-            description = "Narrow which records are read, such as 'since 7d'.")
-    String filterText;
+    @Override
+    Node records() {
+        return new InSet(
+                "label." + Grade.LABEL,
+                Arrays.stream(Grade.values()).map(Grade::value).toList());
+    }
 
     static String render(PriceMismatch item, NanoTime now) {
         String until = item.until().map(NanoTime::isoformat).orElse("STILL");
@@ -44,9 +38,7 @@ final class PricesCommand implements Callable<Integer> {
     @Override
     public Integer call() {
         CliContext context = root.context();
-        List<String> grades = Arrays.stream(Grade.values()).map(Grade::value).toList();
-        SearchResult found = context.search(
-                "audit prices in", context.filter(filterText).narrowedTo(new InSet("label." + Grade.LABEL, grades)));
+        SearchResult found = read(context, "audit prices in");
         NanoTime now = new SystemClock().now();
         List<PriceMismatch> mismatches = PriceAudit.replay(found.records()).mismatches(now);
         if (mismatches.isEmpty()) {

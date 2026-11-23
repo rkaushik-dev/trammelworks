@@ -35,6 +35,7 @@ import picocli.CommandLine.ParentCommand;
             BackfillCommand.class,
             ClockCommand.class,
             CountCommand.class,
+            DisputeCommand.class,
             DoctorCommand.class,
             HoldCommands.Hold.class,
             HoldCommands.Sweep.class,

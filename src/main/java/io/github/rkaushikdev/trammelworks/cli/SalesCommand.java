@@ -12,10 +12,7 @@ import io.github.rkaushikdev.trammelworks.query.SearchResult;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.concurrent.Callable;
 import picocli.CommandLine.Command;
-import picocli.CommandLine.Parameters;
-import picocli.CommandLine.ParentCommand;
 
 /**
  * {@code stanchion sales}: the sales on this forecourt a site manager has to answer for.
@@ -25,24 +22,11 @@ import picocli.CommandLine.ParentCommand;
  * by replaying the archive rather than by anything the containers say outright.
  */
 @Command(name = "sales", description = "List deliveries nobody authorised and completions above their hold.")
-final class SalesCommand implements Callable<Integer> {
-
-    /** Exits with this when there is anything to answer for. */
-    static final int EXIT_FOUND = 3;
-
-    @ParentCommand
-    Cli root;
-
-    @Parameters(
-            index = "0",
-            arity = "0..1",
-            defaultValue = "",
-            paramLabel = "FILTER",
-            description = "Narrow which records are read, such as 'since 1d'.")
-    String filterText;
+final class SalesCommand extends ForecourtCommand {
 
     /** The records a sale is made of: pump states and both halves of the payment. */
-    static Node saleRecords() {
+    @Override
+    Node records() {
         List<String> states =
                 Arrays.stream(PumpState.values()).map(PumpState::value).toList();
         return new Or(
@@ -70,8 +54,7 @@ final class SalesCommand implements Callable<Integer> {
     @Override
     public Integer call() {
         CliContext context = root.context();
-        SearchResult found =
-                context.search("check sales in", context.filter(filterText).narrowedTo(saleRecords()));
+        SearchResult found = read(context, "check sales in");
         List<String> lines = new ArrayList<>();
         PumpTimeline.replay(found.records()).unauthorised().forEach(event -> lines.add(render(event)));
         Overrun.find(found.records()).forEach(overrun -> lines.add(render(overrun)));
@@ -79,9 +62,6 @@ final class SalesCommand implements Callable<Integer> {
             context.echo("nothing to answer for");
         }
         lines.forEach(context::echo);
-        if (found.truncated()) {
-            context.warn("stopped after scanning " + found.scanned() + " rows, narrow the filter");
-        }
         return lines.isEmpty() ? Cli.EXIT_OK : EXIT_FOUND;
     }
 }

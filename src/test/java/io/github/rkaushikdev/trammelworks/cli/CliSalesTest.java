@@ -1,16 +1,7 @@
 package io.github.rkaushikdev.trammelworks.cli;
 
-import static io.github.rkaushikdev.trammelworks.cli.CliFixtures.posix;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import io.github.rkaushikdev.trammelworks.LogRecord;
-import io.github.rkaushikdev.trammelworks.NanoTime;
-import io.github.rkaushikdev.trammelworks.Stream;
-import io.github.rkaushikdev.trammelworks.archive.ArchiveDb;
-import io.github.rkaushikdev.trammelworks.archive.Repository;
-import io.github.rkaushikdev.trammelworks.archive.Schema;
-import io.github.rkaushikdev.trammelworks.forecourt.ForecourtConfig;
-import io.github.rkaushikdev.trammelworks.forecourt.Tagger;
 import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -19,38 +10,18 @@ import org.junit.jupiter.api.io.TempDir;
 
 class CliSalesTest {
 
-    static final NanoTime NOW = NanoTime.parse("2025-03-04T12:00:00Z");
-
     @TempDir
     Path tmp;
 
-    Path archiveFile;
     Path config;
 
     @BeforeEach
     void setUp() {
-        archiveFile = tmp.resolve("archive").resolve("records.sqlite3");
-        config = CliFixtures.writeConfig(
-                tmp,
-                "site: US-TX-0417\nspool:\n  directory: " + posix(tmp.resolve("spool")) + "\narchive:\n  path: "
-                        + posix(archiveFile) + "\n");
+        config = CliFixtures.forecourtConfig(tmp);
     }
 
     void fill(List<List<String>> lines) {
-        Tagger tagger = new Tagger(new ForecourtConfig());
-        try (ArchiveDb connection = Schema.openArchive(archiveFile)) {
-            Repository repo = new Repository(connection);
-            for (List<String> line : lines) {
-                repo.add(
-                        tagger.tag(new LogRecord(
-                                "US-TX-0417",
-                                line.get(0),
-                                Stream.STDOUT,
-                                NanoTime.parse("2025-03-04T" + line.get(1) + "Z"),
-                                line.get(2))),
-                        NOW);
-            }
-        }
+        CliFixtures.archiveTagged(tmp, lines);
     }
 
     @Test
