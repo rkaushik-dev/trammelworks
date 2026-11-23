@@ -22,9 +22,11 @@ import java.util.Map;
  * random noise. A forecourt has a shape:
  *
  * <ul>
- *   <li>the tank gauge is the loudest thing on the box and says almost nothing
+ *   <li>the tank gauge is the loudest thing on the box and says almost nothing, apart from the odd
+ *       alarm it raises and later clears
  *   <li>the payment kernel is quiet and every line of it matters
- *   <li>the pump bridge writes stack traces when a dispenser resets, several lines each
+ *   <li>every pump works through whole sales, calling, authorised, fuelling, completed, and the
+ *       bridge writes stack traces when a dispenser resets, several lines each
  *   <li>the price sign speaks twice a day
  *   <li>chronyd corrects the clock when the modem comes up
  * </ul>
@@ -40,24 +42,19 @@ public final class Simulation {
     /** Roughly how often each unit says anything, relative to the others. */
     public static final Map<String, Integer> WEIGHTS = weights();
 
-    static final List<String> TANK_LINES =
-            List.of("tank {tank} level {level} ml temperature {temp}C", "tank {tank} water 0 ml", "probe {tank} ok");
+    /** The states a pump walks through for one sale, in order, back to where it started. */
+    static final List<String> SALE = List.of("IDLE", "CALLING", "AUTHORISED", "FUELLING", "COMPLETED");
 
-    static final List<String> PUMP_LINES = List.of(
-            "FP{pump} CALLING nozzle lifted",
-            "FP{pump} COMPLETED nozzle replaced, {litres} litres",
-            "FP{pump} AUTHORISED",
-            "FP{pump} reset requested");
+    /** The alarms a healthy tank still raises now and then. A leak is not one of them. */
+    static final List<String> TANK_ALARMS = List.of("HIGH WATER ALARM", "LOW PRODUCT ALARM", "DELIVERY NEEDED");
 
-    /** What the kernel writes: the request with the card, then the host's field 39 against the pump. */
-    static final List<String> PAYMENT_LINES = List.of(
-            "auth request pump={pump} pan={pan} amount={amount}",
-            "auth response pump={pump} rc=00 ref {ref}",
-            "auth response pump={pump} rc=51 ref {ref}",
-            "settlement batch {ref} closed");
+    /** Field 39 codes the host answers with, most of them approvals. */
+    static final List<String> RESPONSES = List.of("00", "51", "05", "55", "91");
 
-    static final List<String> LOYALTY_LINES =
-            List.of("sync started", "sync sent {count} events", "loyalty={loyalty} points {points}");
+    static final List<Integer> RESPONSE_WEIGHTS = List.of(80, 8, 6, 4, 2);
+
+    /** One alarm in this many tank gauge events. */
+    static final int ALARM_ONE_IN = 40;
 
     static final List<String> TRACE = List.of(
             "java.lang.IllegalStateException: dispenser {pump} did not answer",
@@ -73,6 +70,8 @@ public final class Simulation {
     private final SeededRandom rng;
     private NanoTime at;
     private int written;
+    private final Map<Long, Integer> pumpStep = new LinkedHashMap<>();
+    private final Map<Long, String> standingAlarms = new LinkedHashMap<>();
 
     /** The default generator: seed 41, starting at six in the morning, four seconds apart. */
     public Simulation() {
@@ -149,46 +148,69 @@ public final class Simulation {
     /** One event from a unit, which may be several lines. */
     public List<String> messageFor(String unit) {
         return switch (unit) {
-            case "tank-gauge" -> {
-                String template = rng.choice(TANK_LINES);
-                long tank = rng.randint(1, 4);
-                long level = rng.randint(4000, 42000);
-                long temp = rng.randint(4, 28);
-                yield List.of(fill(template, Map.of("tank", tank, "level", level, "temp", temp)));
-            }
-            case "pump-bridge" -> {
-                if (written % traceEvery == traceEvery - 1) {
-                    List<String> lines = new ArrayList<>();
-                    for (String line : TRACE) {
-                        lines.add(fill(line, Map.of("pump", rng.randint(1, 8))));
-                    }
-                    yield lines;
-                }
-                String template = rng.choice(PUMP_LINES);
-                long pump = rng.randint(1, 8);
-                long litres = rng.randint(5, 70);
-                yield List.of(fill(template, Map.of("pump", pump, "litres", litres)));
-            }
-            case "payment-kernel" -> {
-                String template = rng.choice(PAYMENT_LINES);
-                String pan = pan();
-                long amount = rng.randint(500, 12000);
-                long ref = rng.randint(100000, 999999);
-                // The pump comes off the reference rather than its own draw, so a seed still writes
-                // the same sequence of cards and amounts it always did.
-                long pump = 1 + ref % 8;
-                yield List.of(fill(template, Map.of("pan", pan, "amount", amount, "ref", ref, "pump", pump)));
-            }
-            case "loyalty-sync" -> {
-                String template = rng.choice(LOYALTY_LINES);
-                long count = rng.randint(1, 40);
-                long loyalty = rng.randint(10_000_000_000L, 99_999_999_999L);
-                long points = rng.randint(0, 4000);
-                yield List.of(fill(template, Map.of("count", count, "loyalty", loyalty, "points", points)));
-            }
+            case "tank-gauge" -> List.of(tankGauge());
+            case "pump-bridge" -> pumpBridge();
+            case "payment-kernel" -> List.of(paymentKernel());
+            case "loyalty-sync" -> List.of(loyalty());
             case "price-sign" -> List.of("price unleaded " + rng.randint(1200, 1800));
             default ->
                 List.of("System clock wrong by -" + Repr.fixed(rng.random(), 6) + " seconds, adjustment started");
+        };
+    }
+
+    /** An inventory reading, or now and then an alarm raised on a tank or cleared from one. */
+    private String tankGauge() {
+        long tank = rng.randint(1, 4);
+        String standing = standingAlarms.get(tank);
+        if (standing != null && rng.randint(1, 4) == 1) {
+            standingAlarms.remove(tank);
+            return "T " + tank + ":" + standing + " CLEAR";
+        }
+        if (standing == null && rng.randint(1, ALARM_ONE_IN) == 1) {
+            String alarm = rng.choice(TANK_ALARMS);
+            standingAlarms.put(tank, alarm);
+            return "T " + tank + ":" + alarm;
+        }
+        long level = rng.randint(4000, 42000);
+        long temp = rng.randint(4, 28);
+        return "T " + tank + ": INVENTORY volume " + level + " ml water 0 ml temp " + temp + "C";
+    }
+
+    /** The next step of a sale on one pump, or a reset trace every so often. */
+    private List<String> pumpBridge() {
+        if (written % traceEvery == traceEvery - 1) {
+            List<String> lines = new ArrayList<>();
+            for (String line : TRACE) {
+                lines.add(fill(line, Map.of("pump", rng.randint(1, 8))));
+            }
+            return lines;
+        }
+        long pump = rng.randint(1, 8);
+        int step = (pumpStep.getOrDefault(pump, 0) + 1) % SALE.size();
+        pumpStep.put(pump, step);
+        String state = SALE.get(step);
+        if (state.equals("COMPLETED")) {
+            return List.of("FP" + pump + " COMPLETED nozzle replaced, " + rng.randint(5, 70) + " litres");
+        }
+        return List.of("FP" + pump + " " + state);
+    }
+
+    /** A request with the card in it, or the host's field 39 against a pump, or a settlement. */
+    private String paymentKernel() {
+        long pump = rng.randint(1, 8);
+        long ref = rng.randint(100000, 999999);
+        return switch ((int) rng.randint(0, 2)) {
+            case 0 -> "auth request pump=" + pump + " pan=" + pan() + " amount=" + rng.randint(500, 12000);
+            case 1 -> "auth response pump=" + pump + " rc=" + rng.choice(RESPONSES, RESPONSE_WEIGHTS) + " ref " + ref;
+            default -> "settlement batch " + ref + " closed";
+        };
+    }
+
+    private String loyalty() {
+        return switch ((int) rng.randint(0, 2)) {
+            case 0 -> "sync started";
+            case 1 -> "sync sent " + rng.randint(1, 40) + " events";
+            default -> "loyalty=" + rng.randint(10_000_000_000L, 99_999_999_999L) + " points " + rng.randint(0, 4000);
         };
     }
 

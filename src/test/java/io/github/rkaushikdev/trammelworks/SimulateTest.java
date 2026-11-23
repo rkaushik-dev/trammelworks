@@ -2,9 +2,15 @@ package io.github.rkaushikdev.trammelworks;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.rkaushikdev.trammelworks.forecourt.AlarmLog;
+import io.github.rkaushikdev.trammelworks.forecourt.AlarmSeverity;
+import io.github.rkaushikdev.trammelworks.forecourt.ForecourtConfig;
 import io.github.rkaushikdev.trammelworks.forecourt.FuellingPoint;
 import io.github.rkaushikdev.trammelworks.forecourt.PumpState;
+import io.github.rkaushikdev.trammelworks.forecourt.PumpTimeline;
 import io.github.rkaushikdev.trammelworks.forecourt.ResponseCode;
+import io.github.rkaushikdev.trammelworks.forecourt.Tagger;
+import io.github.rkaushikdev.trammelworks.forecourt.TankAlarm;
 import io.github.rkaushikdev.trammelworks.ingest.CriLine;
 import io.github.rkaushikdev.trammelworks.ingest.Discover;
 import io.github.rkaushikdev.trammelworks.redact.Pans;
@@ -119,6 +125,64 @@ class SimulateTest {
                         PumpState.find(line).filter(PumpState.CALLING::equals).isPresent());
     }
 
+    /** Every line one unit wrote, read back into records and tagged the way a site tags them. */
+    static List<LogRecord> tagged(Map<String, List<String>> grouped, String unit) {
+        Tagger tagger = new Tagger(new ForecourtConfig());
+        List<LogRecord> out = new ArrayList<>();
+        for (String line : grouped.getOrDefault(unit, List.of())) {
+            CriLine parsed = CriLine.parse(line.getBytes(StandardCharsets.UTF_8));
+            out.add(tagger.tag(new LogRecord(
+                    "US-TX-0417",
+                    unit,
+                    io.github.rkaushikdev.trammelworks.Stream.STDOUT,
+                    parsed.timestamp(),
+                    parsed.message())));
+        }
+        return out;
+    }
+
+    @Test
+    void everySimulatedSaleIsAuthorisedBeforeItFuels() {
+        PumpTimeline timeline = new PumpTimeline();
+        int states = 0;
+        for (LogRecord record : tagged(sim(29).criLines(3000), "pump-bridge")) {
+            Map<String, String> labels = record.labels();
+            if (labels.containsKey("pump_state")) {
+                states++;
+                timeline.feed(
+                        labels.get("pump"),
+                        record.observedAt(),
+                        PumpState.fromValue(labels.get("pump_state")).orElseThrow());
+            }
+        }
+        assertThat(states).isGreaterThan(500);
+        assertThat(timeline.unauthorised()).isEmpty();
+        assertThat(timeline.states()).hasSize(8);
+    }
+
+    @Test
+    void theTankGaugeRaisesAndClearsAlarmsButNeverALeak() {
+        AlarmLog log = new AlarmLog();
+        for (LogRecord record : tagged(sim(29).criLines(3000), "tank-gauge")) {
+            Map<String, String> labels = record.labels();
+            if (labels.containsKey("alarm")) {
+                log.feed(
+                        labels.get("tank"),
+                        TankAlarm.fromValue(labels.get("alarm")).orElseThrow(),
+                        record.observedAt(),
+                        labels.get("alarm_state").equals("clear"));
+            }
+        }
+        assertThat(log.spans()).isNotEmpty().allMatch(span -> span.alarm().severity() != AlarmSeverity.ENVIRONMENTAL);
+        assertThat(log.spans()).anyMatch(span -> !span.open());
+    }
+
+    @Test
+    void theHostSometimesDeclines() {
+        List<String> found = lines(sim(11).criLines(1500), "payment-kernel");
+        assertThat(found).anyMatch(line -> line.contains("rc=00")).anyMatch(line -> line.contains("rc=51"));
+    }
+
     @Test
     void aStackTraceAppears() {
         List<String> found = lines(new Simulation(13, "2025-03-04T06:00:00Z", 4.0, 5).criLines(200), "pump-bridge");
@@ -205,9 +269,9 @@ class SimulateTest {
 
     @ParameterizedTest
     @CsvSource({
-        "3, 2000, 60, ec3ef7dba17e44a0b66f4501e208bf7c3256362fbc2b0c0d6517559bf34d3c94, 2025-03-04T08:09:14.058082909Z",
-        "101, 400, 60, aa450dbca6cac13741ba90e4595f10a79bce5cda78b722dfae016fb85564f8e1, 2025-03-04T06:25:18.854432125Z",
-        "13, 200, 5, dcc6a670e94465d6eb1e3741f14072d2705fb2d6fb5748b99658659b0c119aea, 2025-03-04T06:13:15.594815466Z"
+        "3, 2000, 60, b518f25d65f5d895981a5fb71b430f79bc3b402f20fb1cf4014bcc01644a52a5, 2025-03-04T08:14:40.395025525Z",
+        "101, 400, 60, e2a4368b5587c934709fc4ad5207c519bf4ba924246fe056e0030fafecadcbb1, 2025-03-04T06:26:08.756608012Z",
+        "13, 200, 5, 016eb4499dca844c2aae93517a1338dd4dff858a9bf56af9061f7e92e58cfc5d, 2025-03-04T06:14:05.831802489Z"
     })
     void aSeedAlwaysWritesTheSameCorpus(long seed, int count, int traceEvery, String digest, String last)
             throws NoSuchAlgorithmException {
@@ -224,7 +288,7 @@ class SimulateTest {
     void theJsonFileCorpusIsFixedToo() throws IOException, NoSuchAlgorithmException {
         Path target = sim(31).writeJsonfile(tmp.resolve("docker.log"), 100);
         assertThat(sha256(Files.readAllBytes(target)))
-                .isEqualTo("7ee83efedba8bbdbd86e954d2fe7609890944eae4a1caa2a9078bb1de37426c4");
+                .isEqualTo("2343d5bda95fb571c68ee4183cd1279c684ae1d753840cff967086ca57be1e9c");
     }
 
     @Test
