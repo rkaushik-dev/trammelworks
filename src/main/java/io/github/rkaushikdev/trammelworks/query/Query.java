@@ -21,6 +21,12 @@ public record Query(Optional<Node> where, OptionalInt limit) {
         return new Query(Optional.of(where), OptionalInt.empty());
     }
 
+    /** The same, with {@code extra} also required, and no limit: the caller is reading a set, not a page. */
+    public Query narrowedTo(Node extra) {
+        return new Query(
+                Optional.of(where.<Node>map(node -> new And(node, extra)).orElse(extra)), OptionalInt.empty());
+    }
+
     /** The same condition with no limit. */
     public Query unlimited() {
         return new Query(where, OptionalInt.empty());

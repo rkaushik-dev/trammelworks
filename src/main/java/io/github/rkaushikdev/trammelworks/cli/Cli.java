@@ -46,6 +46,7 @@ import picocli.CommandLine.ParentCommand;
             ReportCommands.Summary.class,
             RunCommands.Run.class,
             RunCommands.Ship.class,
+            SalesCommand.class,
             ServeCommand.class,
             SpoolCommand.class,
             UnitsCommands.Units.class,

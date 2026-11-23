@@ -64,6 +64,11 @@ public final class Tagger {
             found.put(ResponseCode.LABEL, code.code());
             found.put(Outcome.LABEL, code.outcome().value());
         });
+        AuthStage.read(message).ifPresent(stage -> {
+            found.put(AuthStage.LABEL, stage.stage());
+            found.put(AuthStage.AMOUNT_LABEL, stage.amount());
+            found.put(AuthStage.REF_LABEL, stage.reference());
+        });
     }
 
     /** The tank, the alarm on it and whether it is starting or ending. */

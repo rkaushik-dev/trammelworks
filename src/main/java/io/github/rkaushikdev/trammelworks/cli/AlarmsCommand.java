@@ -6,14 +6,10 @@ import io.github.rkaushikdev.trammelworks.Units;
 import io.github.rkaushikdev.trammelworks.forecourt.AlarmLog;
 import io.github.rkaushikdev.trammelworks.forecourt.AlarmSeverity;
 import io.github.rkaushikdev.trammelworks.forecourt.AlarmSpan;
-import io.github.rkaushikdev.trammelworks.query.And;
-import io.github.rkaushikdev.trammelworks.query.Node;
 import io.github.rkaushikdev.trammelworks.query.Query;
 import io.github.rkaushikdev.trammelworks.query.SearchResult;
 import java.time.Duration;
 import java.util.List;
-import java.util.Optional;
-import java.util.OptionalInt;
 import java.util.concurrent.Callable;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -41,15 +37,6 @@ final class AlarmsCommand implements Callable<Integer> {
     @Option(names = "--open", description = "Only the alarms still standing.")
     boolean openOnly;
 
-    /** Only alarm records, narrowed by whatever was typed. */
-    static Query alarmsOnly(Query typed) {
-        Node alarms = AlarmLog.filter();
-        return new Query(
-                Optional.of(
-                        typed.where().<Node>map(node -> new And(node, alarms)).orElse(alarms)),
-                OptionalInt.empty());
-    }
-
     /** One span on one line. */
     static String render(AlarmSpan span, NanoTime now) {
         Duration standing = span.standing(now);
@@ -63,7 +50,7 @@ final class AlarmsCommand implements Callable<Integer> {
     @Override
     public Integer call() {
         CliContext context = root.context();
-        Query query = alarmsOnly(context.filter(filterText));
+        Query query = context.filter(filterText).narrowedTo(AlarmLog.filter());
         SearchResult found = context.search("list alarms from", query);
         NanoTime now = new SystemClock().now();
         List<AlarmSpan> spans = openOnly
