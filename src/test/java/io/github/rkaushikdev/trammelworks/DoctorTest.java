@@ -4,14 +4,22 @@ import static io.github.rkaushikdev.trammelworks.LogFiles.criFull;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.rkaushikdev.trammelworks.archive.ArchiveSettings;
+import io.github.rkaushikdev.trammelworks.archive.RetentionPolicy;
+import io.github.rkaushikdev.trammelworks.forecourt.ForecourtConfig;
+import io.github.rkaushikdev.trammelworks.forecourt.Role;
 import io.github.rkaushikdev.trammelworks.redact.RedactConfig;
+import io.github.rkaushikdev.trammelworks.redact.Redactor;
 import io.github.rkaushikdev.trammelworks.ship.ShipSettings;
+import io.github.rkaushikdev.trammelworks.spool.PriorityClass;
+import io.github.rkaushikdev.trammelworks.spool.PriorityTable;
 import io.github.rkaushikdev.trammelworks.spool.SpoolSettings;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.function.UnaryOperator;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
@@ -125,6 +133,68 @@ class DoctorTest {
         DoctorReport report = Doctor.runChecks(healthy());
         assertThat(levels(report, "redaction")).contains(Finding.Level.NOTE);
         assertThat(report.findings()).noneMatch(item -> item.message().contains(Doctor.PROBE_PAN));
+    }
+
+    @Test
+    void everyRedactionProbeComesOutCleanThroughTheRealPass() {
+        Redactor pass = Redactor.of(healthy().redact());
+        assertThat(Doctor.REDACTION_PROBES.values())
+                .allSatisfy(line -> assertThat(pass.redactText(line).text()).doesNotContain(Doctor.PROBE_PAN));
+        assertThat(Doctor.REDACTION_PROBES).containsKeys("a track 2 image", "a card number in an EMV tag");
+    }
+
+    @Test
+    void aForecourtMissingItsTankGaugeIsWarned() {
+        tree.writeCri("payment-kernel", List.of(criFull(TS, "up")));
+        DoctorReport report = Doctor.runChecks(healthy());
+        assertThat(report.findings())
+                .filteredOn(item -> item.check().equals("forecourt"))
+                .extracting(Finding::message)
+                .contains("no tank gauge container is being followed", "dispenser pump-bridge; payment payment-kernel")
+                .noneMatch(message -> message.contains("no dispenser"));
+    }
+
+    @Test
+    void aSiteNamedRoleCountsAsFollowed() {
+        tree.writeCri("atg", List.of(criFull(TS, "up")));
+        tree.writeCri("payment-kernel", List.of(criFull(TS, "up")));
+        DoctorReport report =
+                Doctor.runChecks(healthy(over -> over.forecourt(new ForecourtConfig(Map.of("atg", Role.TANK_GAUGE)))));
+        assertThat(report.findings())
+                .filteredOn(item -> item.check().equals("forecourt"))
+                .extracting(Finding::message)
+                .noneMatch(message -> message.startsWith("no "))
+                .anyMatch(message -> message.contains("tank_gauge atg"));
+    }
+
+    @Test
+    void alarmsKeptLessThanAYearAreWarned() {
+        DoctorReport report = Doctor.runChecks(healthy());
+        assertThat(report.findings())
+                .filteredOn(item -> item.check().equals("forecourt") && item.level() == Finding.Level.WARN)
+                .extracting(Finding::message)
+                .contains("tank alarms are archived as payment and kept 180d, release detection records are kept 365d");
+    }
+
+    @Test
+    void alarmsKeptAYearAreNotWarned() {
+        SiteConfig config = healthy(over -> over.archive(ArchiveSettings.builder()
+                .path(PosixPath.asPosix(tmp.resolve("archive").resolve("records.sqlite3")))
+                .retention(new RetentionPolicy(Map.of("payment", Duration.ofDays(400))))
+                .build()));
+        assertThat(Doctor.runChecks(config).findings())
+                .noneMatch(item -> item.message().contains("release detection"));
+    }
+
+    @Test
+    void aTableThatPromotesNothingIsWarned() {
+        SpoolSettings spool = SpoolSettings.builder()
+                .directory(PosixPath.asPosix(tmp.resolve("spool")))
+                .priority(new PriorityTable(List.of(new PriorityClass("only", 5)), Map.of(), "only"))
+                .build();
+        assertThat(Doctor.runChecks(healthy(over -> over.spool(spool))).findings())
+                .extracting(Finding::message)
+                .contains("environmental tank alarms are not promoted, a full spool can evict them");
     }
 
     @Test

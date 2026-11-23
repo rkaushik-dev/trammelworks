@@ -39,12 +39,17 @@ class CliDoctorTest {
                         + "  directory: " + posix(tmp.resolve("spool")) + "\n"
                         + "archive:\n"
                         + "  path: " + posix(tmp.resolve("archive").resolve("records.sqlite3")) + "\n"
+                        + "  retention:\n"
+                        + "    payment: 365d\n"
                         + "ship:\n"
                         + "  endpoint: " + endpoint + "\n");
     }
 
+    /** A forecourt with all three containers it is read by, keeping alarms for a year. */
     Path good() {
-        tree.writeCri("pump-bridge", List.of(criFull(TS, "up")));
+        for (String unit : List.of("pump-bridge", "payment-kernel", "tank-gauge")) {
+            tree.writeCri(unit, List.of(criFull(TS, "up")));
+        }
         return writeConfig("file://" + posix(tmp.resolve("outbox")));
     }
 

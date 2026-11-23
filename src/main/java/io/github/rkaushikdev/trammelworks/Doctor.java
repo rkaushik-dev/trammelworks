@@ -3,8 +3,10 @@ package io.github.rkaushikdev.trammelworks;
 import io.github.rkaushikdev.trammelworks.archive.ArchiveDb;
 import io.github.rkaushikdev.trammelworks.archive.ArchiveSettings;
 import io.github.rkaushikdev.trammelworks.archive.Repository;
+import io.github.rkaushikdev.trammelworks.archive.RetentionPolicy;
 import io.github.rkaushikdev.trammelworks.archive.Schema;
 import io.github.rkaushikdev.trammelworks.archive.SqlFailure;
+import io.github.rkaushikdev.trammelworks.forecourt.Role;
 import io.github.rkaushikdev.trammelworks.ingest.Discover;
 import io.github.rkaushikdev.trammelworks.ingest.Discovery;
 import io.github.rkaushikdev.trammelworks.ingest.SkipReason;
@@ -14,6 +16,8 @@ import io.github.rkaushikdev.trammelworks.ship.ShipSettings;
 import io.github.rkaushikdev.trammelworks.ship.SigningKey;
 import io.github.rkaushikdev.trammelworks.spool.Budget;
 import io.github.rkaushikdev.trammelworks.spool.Frames;
+import io.github.rkaushikdev.trammelworks.spool.PriorityTable;
+import io.github.rkaushikdev.trammelworks.spool.Promotion;
 import io.github.rkaushikdev.trammelworks.spool.SegmentInfo;
 import io.github.rkaushikdev.trammelworks.spool.Segments;
 import io.github.rkaushikdev.trammelworks.spool.SpoolSettings;
@@ -23,11 +27,16 @@ import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.function.BiConsumer;
 
@@ -46,6 +55,25 @@ public final class Doctor {
     /** A number that is a card number, used to prove the pass actually fires. */
     public static final String PROBE_PAN = "4111111111111111";
 
+    /**
+     * Lines a real pass must clean, each carrying {@link #PROBE_PAN} the way a forecourt prints it:
+     * plain, inside a track 2 image, and packed into an EMV tag. A pass that masks the first and
+     * misses the others looks healthy to a check that only tries the first.
+     */
+    public static final Map<String, String> REDACTION_PROBES = Map.of(
+            "a known test card number", "probe pan=" + PROBE_PAN,
+            "a track 2 image", "swipe ;" + PROBE_PAN + "=27031011234567890?",
+            "a card number in an EMV tag", "icc=5A08" + PROBE_PAN + "5F2403270331");
+
+    /**
+     * How long release detection records are kept. The underground storage tank rules ask for a
+     * year of them, and the archive is where a site answers an inspector from.
+     */
+    public static final Duration RELEASE_DETECTION_RETENTION = Duration.ofDays(365);
+
+    /** The roles a forecourt cannot be read without. */
+    public static final List<Role> EXPECTED_ROLES = List.of(Role.DISPENSER, Role.PAYMENT, Role.TANK_GAUGE);
+
     /** Above this fraction of the free disk, the budgets are worth a warning. */
     public static final double CROWDED = 0.8;
 
@@ -55,6 +83,7 @@ public final class Doctor {
             Doctor::checkLogRoot,
             Doctor::checkSpool,
             Doctor::checkRedaction,
+            Doctor::checkForecourt,
             Doctor::checkArchive,
             Doctor::checkShip,
             Doctor::checkSigning,
@@ -85,6 +114,13 @@ public final class Doctor {
         return Optional.empty();
     }
 
+    /** Whether a directory can be written, failing {@code check} with {@code refusal} and why when not. */
+    static boolean writable(Path path, String check, String refusal, DoctorReport report) {
+        Optional<String> problem = checkWritable(path);
+        problem.ifPresent(why -> report.fail(check, refusal + ": " + why));
+        return problem.isEmpty();
+    }
+
     /** Whether the log root exists and holds files this build can read. */
     public static void checkLogRoot(SiteConfig config, DoctorReport report) {
         Path root = Path.of(config.ingest().logRoot());
@@ -107,9 +143,7 @@ public final class Doctor {
     /** Whether the spool can be written and how full it is. */
     public static void checkSpool(SiteConfig config, DoctorReport report) {
         SpoolSettings settings = config.spool();
-        Optional<String> problem = checkWritable(settings.path());
-        if (problem.isPresent()) {
-            report.fail("spool", "cannot write to " + settings.directory() + ": " + problem.get());
+        if (!writable(settings.path(), "spool", "cannot write to " + settings.directory(), report)) {
             return;
         }
         Usage usage = Usage.measure(Segments.listSegments(settings.path()));
@@ -128,14 +162,64 @@ public final class Doctor {
             return;
         }
         Redactor redactor = Redactor.of(config.redact());
-        RedactionResult found = redactor.redactText("probe pan=" + PROBE_PAN);
-        if (found.text().contains(PROBE_PAN)) {
-            report.fail("redaction", "a known test card number survived the pass");
-            return;
+        for (Map.Entry<String, String> probe : new TreeMap<>(REDACTION_PROBES).entrySet()) {
+            RedactionResult found = redactor.redactText(probe.getValue());
+            if (found.text().contains(PROBE_PAN)) {
+                report.fail("redaction", probe.getKey() + " survived the pass");
+                return;
+            }
         }
         report.note(
                 "redaction",
                 "card numbers are masked, " + config.redact().rules().size() + " site rules");
+    }
+
+    /**
+     * Whether the containers a forecourt is read by are being followed, and whether the tank alarm
+     * records the regulator can ask for will still be on the box in a year.
+     */
+    public static void checkForecourt(SiteConfig config, DoctorReport report) {
+        Path root = Path.of(config.ingest().logRoot());
+        if (Files.exists(root)) {
+            Map<Role, List<String>> byRole = new EnumMap<>(Role.class);
+            for (String unit : Discover.discover(root, config.ingest().units()).units()) {
+                byRole.computeIfAbsent(config.forecourt().roleOf(unit), role -> new ArrayList<>())
+                        .add(unit);
+            }
+            for (Role role : EXPECTED_ROLES) {
+                if (!byRole.containsKey(role)) {
+                    report.warn("forecourt", "no " + role.value().replace('_', ' ') + " container is being followed");
+                }
+            }
+            List<String> named = new ArrayList<>();
+            byRole.forEach((role, units) -> {
+                if (role != Role.OTHER) {
+                    named.add(role.value() + " " + String.join(", ", units));
+                }
+            });
+            if (!named.isEmpty()) {
+                report.note("forecourt", String.join("; ", named));
+            }
+        }
+        Optional<Promotion> promoted = config.spool().table().promotions().stream()
+                .filter(item -> item.label().equals(PriorityTable.SEVERITY_LABEL)
+                        && item.value().equals(PriorityTable.ENVIRONMENTAL))
+                .findFirst();
+        if (promoted.isEmpty()) {
+            report.warn("forecourt", "environmental tank alarms are not promoted, a full spool can evict them");
+            return;
+        }
+        if (!config.archive().enabled()) {
+            return;
+        }
+        Duration kept = config.archive().retention().windowFor(promoted.get().klass());
+        if (kept.compareTo(RELEASE_DETECTION_RETENTION) < 0) {
+            report.warn(
+                    "forecourt",
+                    "tank alarms are archived as " + promoted.get().klass() + " and kept "
+                            + RetentionPolicy.formatRetention(kept) + ", release detection records are kept "
+                            + RetentionPolicy.formatRetention(RELEASE_DETECTION_RETENTION));
+        }
     }
 
     /** Whether the archive opens and answers. */
@@ -145,10 +229,11 @@ public final class Doctor {
             report.note("archive", "this site keeps no archive");
             return;
         }
-        Optional<String> problem =
-                checkWritable(settings.file().toAbsolutePath().getParent());
-        if (problem.isPresent()) {
-            report.fail("archive", "cannot write beside " + settings.path() + ": " + problem.get());
+        if (!writable(
+                settings.file().toAbsolutePath().getParent(),
+                "archive",
+                "cannot write beside " + settings.path(),
+                report)) {
             return;
         }
         long count;
@@ -165,9 +250,7 @@ public final class Doctor {
     public static void checkShip(SiteConfig config, DoctorReport report) {
         ShipSettings settings = config.ship();
         if (settings.toFile()) {
-            Optional<String> problem = checkWritable(settings.fileDirectory());
-            if (problem.isPresent()) {
-                report.fail("ship", "cannot write to the outbox: " + problem.get());
+            if (!writable(settings.fileDirectory(), "ship", "cannot write to the outbox", report)) {
                 return;
             }
             report.note("ship", "writing batches to " + settings.fileDirectory());
@@ -186,9 +269,7 @@ public final class Doctor {
     /** Whether the state directory beside the spool can be written. */
     public static void checkState(SiteConfig config, DoctorReport report) {
         Path state = Site.stateDirectory(config.spool().directory());
-        Optional<String> problem = checkWritable(state);
-        if (problem.isPresent()) {
-            report.fail("state", "cannot write to " + state + ": " + problem.get());
+        if (!writable(state, "state", "cannot write to " + state, report)) {
             return;
         }
         report.note("state", "state directory is " + state);
