@@ -2,6 +2,9 @@ package io.github.rkaushikdev.trammelworks;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.rkaushikdev.trammelworks.forecourt.FuellingPoint;
+import io.github.rkaushikdev.trammelworks.forecourt.PumpState;
+import io.github.rkaushikdev.trammelworks.forecourt.ResponseCode;
 import io.github.rkaushikdev.trammelworks.ingest.CriLine;
 import io.github.rkaushikdev.trammelworks.ingest.Discover;
 import io.github.rkaushikdev.trammelworks.redact.Pans;
@@ -97,6 +100,26 @@ class SimulateTest {
     }
 
     @Test
+    void thePaymentKernelAnswersWithAFieldThirtyNineAgainstAPump() {
+        List<String> found = lines(sim(11).criLines(800), "payment-kernel");
+        assertThat(found).anyMatch(line -> line.contains("rc=00") && line.contains("pump="));
+        assertThat(found.stream().filter(line -> line.contains("auth response")))
+                .allMatch(line -> ResponseCode.find(line).isPresent()
+                        && FuellingPoint.find(line).isPresent());
+    }
+
+    @Test
+    void thePumpBridgeReportsIfsfStates() {
+        List<String> found = lines(sim(11).criLines(800), "pump-bridge");
+        assertThat(found).anyMatch(line -> PumpState.find(line)
+                .filter(PumpState.AUTHORISED::equals)
+                .isPresent());
+        assertThat(found)
+                .anyMatch(line ->
+                        PumpState.find(line).filter(PumpState.CALLING::equals).isPresent());
+    }
+
+    @Test
     void aStackTraceAppears() {
         List<String> found = lines(new Simulation(13, "2025-03-04T06:00:00Z", 4.0, 5).criLines(200), "pump-bridge");
         assertThat(found).anyMatch(line -> line.contains("at Pump.reset"));
@@ -182,9 +205,9 @@ class SimulateTest {
 
     @ParameterizedTest
     @CsvSource({
-        "3, 2000, 60, b3c85ce1c8d21166b7e98d96017a8b44737c6a28f61fdc9b022efde6f63cc319, 2025-03-04T08:09:14.058082909Z",
-        "101, 400, 60, 5e823e0b6e992cce39f59702f6000edbead5d7cffc1cdf310db954cdda15047f, 2025-03-04T06:25:18.854432125Z",
-        "13, 200, 5, 83ad6accadd4bd2bc6c6ee2db2f6c1baebf91a6c1cf8b5cef19e56bf4a054e35, 2025-03-04T06:13:15.594815466Z"
+        "3, 2000, 60, ec3ef7dba17e44a0b66f4501e208bf7c3256362fbc2b0c0d6517559bf34d3c94, 2025-03-04T08:09:14.058082909Z",
+        "101, 400, 60, aa450dbca6cac13741ba90e4595f10a79bce5cda78b722dfae016fb85564f8e1, 2025-03-04T06:25:18.854432125Z",
+        "13, 200, 5, dcc6a670e94465d6eb1e3741f14072d2705fb2d6fb5748b99658659b0c119aea, 2025-03-04T06:13:15.594815466Z"
     })
     void aSeedAlwaysWritesTheSameCorpus(long seed, int count, int traceEvery, String digest, String last)
             throws NoSuchAlgorithmException {
@@ -201,7 +224,7 @@ class SimulateTest {
     void theJsonFileCorpusIsFixedToo() throws IOException, NoSuchAlgorithmException {
         Path target = sim(31).writeJsonfile(tmp.resolve("docker.log"), 100);
         assertThat(sha256(Files.readAllBytes(target)))
-                .isEqualTo("e162bb73887c2eeb1038ad5eb7f21f688b140fe57af6f7ee0de2e65bef827fd2");
+                .isEqualTo("7ee83efedba8bbdbd86e954d2fe7609890944eae4a1caa2a9078bb1de37426c4");
     }
 
     @Test

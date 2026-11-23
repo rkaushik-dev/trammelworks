@@ -46,7 +46,13 @@ public final class Tagger {
                     found.put(FuellingPoint.LABEL, point);
                     PumpState.find(message).ifPresent(state -> found.put(PumpState.LABEL, state.value()));
                 });
-            case PAYMENT -> FuellingPoint.find(message).ifPresent(point -> found.put(FuellingPoint.LABEL, point));
+            case PAYMENT -> {
+                FuellingPoint.find(message).ifPresent(point -> found.put(FuellingPoint.LABEL, point));
+                ResponseCode.find(message).ifPresent(code -> {
+                    found.put(ResponseCode.LABEL, code.code());
+                    found.put(Outcome.LABEL, code.outcome().value());
+                });
+            }
             default -> {}
         }
         return found;

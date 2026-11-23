@@ -44,15 +44,16 @@ public final class Simulation {
             List.of("tank {tank} level {level} ml temperature {temp}C", "tank {tank} water 0 ml", "probe {tank} ok");
 
     static final List<String> PUMP_LINES = List.of(
-            "nozzle {pump} lifted",
-            "nozzle {pump} replaced, {litres} litres",
-            "dispenser {pump} authorised",
-            "dispenser {pump} reset requested");
+            "FP{pump} CALLING nozzle lifted",
+            "FP{pump} COMPLETED nozzle replaced, {litres} litres",
+            "FP{pump} AUTHORISED",
+            "FP{pump} reset requested");
 
+    /** What the kernel writes: the request with the card, then the host's field 39 against the pump. */
     static final List<String> PAYMENT_LINES = List.of(
-            "auth request pan={pan} amount={amount}",
-            "auth approved ref {ref}",
-            "auth declined ref {ref} reason 51",
+            "auth request pump={pump} pan={pan} amount={amount}",
+            "auth response pump={pump} rc=00 ref {ref}",
+            "auth response pump={pump} rc=51 ref {ref}",
             "settlement batch {ref} closed");
 
     static final List<String> LOYALTY_LINES =
@@ -173,7 +174,10 @@ public final class Simulation {
                 String pan = pan();
                 long amount = rng.randint(500, 12000);
                 long ref = rng.randint(100000, 999999);
-                yield List.of(fill(template, Map.of("pan", pan, "amount", amount, "ref", ref)));
+                // The pump comes off the reference rather than its own draw, so a seed still writes
+                // the same sequence of cards and amounts it always did.
+                long pump = 1 + ref % 8;
+                yield List.of(fill(template, Map.of("pan", pan, "amount", amount, "ref", ref, "pump", pump)));
             }
             case "loyalty-sync" -> {
                 String template = rng.choice(LOYALTY_LINES);
