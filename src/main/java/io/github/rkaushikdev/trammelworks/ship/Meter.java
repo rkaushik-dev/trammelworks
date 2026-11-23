@@ -15,6 +15,12 @@ import java.util.Map;
  * Every priority class has a floor: a fraction of the allowance nothing at that class may touch.
  * Chatter stops once 70% is gone; payment traffic keeps going to the last byte. So the meter does
  * not decide "is there room", it decides "is there room for this".
+ *
+ * <p>The carrier bills the bytes on the radio, not the bytes in the batch. Every upload also costs
+ * a TCP and TLS handshake, the certificate chain and the HTTP headers both ways, which on a link
+ * that reconnects for each batch is several kilobytes and, with small batches, can be most of the
+ * bill. A site that has measured its own overhead per request sets it, and the meter charges and
+ * checks every request with it added.
  */
 public final class Meter {
 
@@ -30,6 +36,7 @@ public final class Meter {
     private final long allowanceBytes;
     private final int anchorDay;
     private final Map<String, Double> floors;
+    private final long requestOverhead;
     private long usedBytes;
     private NanoTime startedAt = new NanoTime(0);
     private int rollovers;
@@ -47,9 +54,17 @@ public final class Meter {
         this(allowanceBytes, anchorDay, DEFAULT_FLOORS);
     }
 
-    /** A meter with given floors, each in {@code [0, 1)}. */
+    /** A meter with given floors, each in {@code [0, 1)}, and nothing charged per request. */
     public Meter(long allowanceBytes, int anchorDay, Map<String, Double> floors) {
+        this(allowanceBytes, anchorDay, floors, 0);
+    }
+
+    /** A meter with given floors that charges {@code requestOverhead} bytes for every request. */
+    public Meter(long allowanceBytes, int anchorDay, Map<String, Double> floors, long requestOverhead) {
         checkAnchor(anchorDay);
+        if (requestOverhead < 0) {
+            throw new ShipError("request overhead cannot be negative", Long.toString(requestOverhead));
+        }
         if (allowanceBytes <= 0) {
             throw new ShipError("allowance must be positive", Long.toString(allowanceBytes));
         }
@@ -61,6 +76,7 @@ public final class Meter {
         this.allowanceBytes = allowanceBytes;
         this.anchorDay = anchorDay;
         this.floors = Map.copyOf(floors);
+        this.requestOverhead = requestOverhead;
     }
 
     /** Refuse an anchor day that not every month has. */
@@ -125,6 +141,16 @@ public final class Meter {
     /** How many periods have started. */
     public int rollovers() {
         return rollovers;
+    }
+
+    /** What every request costs beyond its body. */
+    public long requestOverhead() {
+        return requestOverhead;
+    }
+
+    /** What sending a body of {@code size} bytes costs on the bill. */
+    public long requestCost(long size) {
+        return size + requestOverhead;
     }
 
     /** The floors, by class. */
@@ -201,7 +227,8 @@ public final class Meter {
 
     /** One line for the status report. */
     public String describe() {
-        return "meter " + usedBytes + "/" + allowanceBytes + " bytes (" + Repr.fixed(100 * spentRatio(), 1)
+        String spent = "meter " + usedBytes + "/" + allowanceBytes + " bytes (" + Repr.fixed(100 * spentRatio(), 1)
                 + "%) this period";
+        return requestOverhead == 0 ? spent : spent + ", " + requestOverhead + " per request";
     }
 }

@@ -263,7 +263,13 @@ public final class Doctor {
             report.fail("ship", "the endpoint is still the placeholder: " + settings.endpoint());
             return;
         }
-        report.note("ship", "shipping to " + settings.endpoint());
+        long overhead = settings.requestOverheadBytes();
+        report.note(
+                "ship",
+                overhead == 0
+                        ? "shipping to " + settings.endpoint()
+                        : "shipping to " + settings.endpoint() + ", " + Units.formatBytes(overhead)
+                                + " charged per request on top of each batch");
     }
 
     /** Whether the state directory beside the spool can be written. */

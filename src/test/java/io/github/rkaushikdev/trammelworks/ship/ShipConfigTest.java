@@ -109,6 +109,24 @@ class ShipConfigTest {
     }
 
     @Test
+    void theRequestOverheadIsReadInBytesAndReachesTheMeter() {
+        ShipSettings settings = ShipSettings.shipSettingsFromMapping(Map.of("request_overhead", "6KiB"));
+        assertThat(settings.requestOverheadBytes()).isEqualTo(6144);
+        assertThat(settings.meter().requestCost(1000)).isEqualTo(7144);
+        assertThat(new ShipSettings().requestOverheadBytes()).isZero();
+    }
+
+    @Test
+    void anOverheadAsBigAsABatchIsRefused() {
+        assertThatThrownBy(
+                        () -> ShipSettings.shipSettingsFromMapping(Map.of("batch", "8KiB", "request_overhead", "8KiB")))
+                .isInstanceOf(ConfigError.class)
+                .hasMessageContaining("request_overhead must be under the batch size");
+        assertThatThrownBy(() -> ShipSettings.builder().requestOverheadBytes(-1).build())
+                .isInstanceOf(ConfigError.class);
+    }
+
+    @Test
     void theFloorsReachTheMeter() {
         assertThat(ShipSettings.builder()
                         .floors(Map.of("chatter", 0.5))

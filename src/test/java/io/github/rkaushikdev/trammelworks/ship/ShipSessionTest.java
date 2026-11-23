@@ -110,6 +110,29 @@ class ShipSessionTest {
     }
 
     @Test
+    void everyRequestIsChargedItsOverheadAsWellAsItsBody() {
+        fill("pump-bridge", 3);
+        MemoryTransport transport = new MemoryTransport();
+        Meter meter = new Meter(10_000_000, 1, Meter.DEFAULT_FLOORS, 6144);
+        shipper(transport).meter(meter).build().runOnce();
+        long body = transport.received().get(0).wireBytes();
+        assertThat(meter.usedBytes()).isEqualTo(body + 6144);
+    }
+
+    @Test
+    void aBatchThatFitsOnlyWithoutItsOverheadIsHeldBack() {
+        fill("payment-kernel", 3);
+        MemoryTransport probe = new MemoryTransport();
+        shipper(probe).build().runOnce();
+        long body = probe.received().get(0).wireBytes();
+        fill("payment-kernel", 3);
+        Meter meter = new Meter(body + 100, 1, Meter.DEFAULT_FLOORS, 500);
+        ShipReport report = shipper(new MemoryTransport()).meter(meter).build().runOnce();
+        assertThat(report.blockedByMeter()).hasSize(1);
+        assertThat(meter.usedBytes()).isZero();
+    }
+
+    @Test
     void anAcknowledgedSegmentIsDeleted() throws IOException {
         fill("pump-bridge", 3);
         shipper(new MemoryTransport()).build().runOnce();

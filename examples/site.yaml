@@ -97,6 +97,11 @@ ship:
   interval: 5m
   delete_acknowledged: true
 
+  # What each upload costs on the carrier's bill beyond the batch itself: the
+  # TLS handshake, the certificate chain and the headers both ways, measured
+  # on this modem during commissioning.
+  request_overhead: 6KiB
+
   # The secret is never in this file. Commissioning writes the key beside it
   # with tight permissions and the config only names it.
   signing_key_file: /etc/stanchion/site.key

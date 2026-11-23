@@ -32,6 +32,7 @@ import java.util.Set;
  * @param compact whether part shipped segments are compacted
  * @param compactMinReclaimBytes the smallest saving worth a rewrite
  * @param compactMinFraction the smallest fraction worth a rewrite
+ * @param requestOverheadBytes what each upload costs on the bill beyond its body
  */
 public record ShipSettings(
         String endpoint,
@@ -48,7 +49,8 @@ public record ShipSettings(
         String signingKeyId,
         boolean compact,
         long compactMinReclaimBytes,
-        double compactMinFraction) {
+        double compactMinFraction,
+        long requestOverheadBytes) {
 
     /** Where a commissioned site ships to until it is told otherwise. */
     public static final String DEFAULT_ENDPOINT = "https://collector.invalid/v1/ingest";
@@ -74,7 +76,8 @@ public record ShipSettings(
             "signing_key_id",
             "compact",
             "compact_min_reclaim",
-            "compact_min_fraction");
+            "compact_min_fraction",
+            "request_overhead");
 
     /** Checks the section against itself and against the meter. */
     public ShipSettings {
@@ -104,8 +107,13 @@ public record ShipSettings(
         if (!(compactMinFraction >= 0.0 && compactMinFraction <= 1.0)) {
             throw new ConfigError("compact_min_fraction is a fraction of a segment", Repr.of(compactMinFraction));
         }
+        if (requestOverheadBytes < 0 || requestOverheadBytes >= batchBytes) {
+            // An overhead as big as a batch would mean every upload spends more on the
+            // handshake than on the records, which is a typo, not a link.
+            throw new ConfigError("request_overhead must be under the batch size", Long.toString(requestOverheadBytes));
+        }
         try {
-            new Meter(monthlyAllowanceBytes, anchorDay, floors);
+            new Meter(monthlyAllowanceBytes, anchorDay, floors, requestOverheadBytes);
         } catch (ShipError exc) {
             throw new ConfigError(exc.message(), exc.detail().orElse(null));
         }
@@ -132,7 +140,8 @@ public record ShipSettings(
                 from.signingKeyId,
                 from.compact,
                 from.compactMinReclaimBytes,
-                from.compactMinFraction);
+                from.compactMinFraction,
+                from.requestOverheadBytes);
     }
 
     /** A builder starting from the defaults. */
@@ -180,7 +189,7 @@ public record ShipSettings(
 
     /** A fresh meter for this allowance. */
     public Meter meter() {
-        return new Meter(monthlyAllowanceBytes, anchorDay, floors);
+        return new Meter(monthlyAllowanceBytes, anchorDay, floors, requestOverheadBytes);
     }
 
     /** The retry curve. */
@@ -239,6 +248,9 @@ public record ShipSettings(
         if (raw.containsKey("compact_min_fraction")) {
             built.compactMinFraction(Coerce.toDouble(raw.get("compact_min_fraction")));
         }
+        if (raw.containsKey("request_overhead")) {
+            built.requestOverheadBytes(Units.parseBytes(raw.get("request_overhead")));
+        }
         return built.build();
     }
 
@@ -259,6 +271,7 @@ public record ShipSettings(
         private boolean compact = true;
         private long compactMinReclaimBytes = Compaction.DEFAULT_MIN_RECLAIM;
         private double compactMinFraction = Compaction.DEFAULT_MIN_FRACTION;
+        private long requestOverheadBytes;
 
         private Builder() {}
 
@@ -349,6 +362,12 @@ public record ShipSettings(
         /** The smallest fraction worth a rewrite. */
         public Builder compactMinFraction(double value) {
             compactMinFraction = value;
+            return this;
+        }
+
+        /** What each upload costs beyond its body. */
+        public Builder requestOverheadBytes(long value) {
+            requestOverheadBytes = value;
             return this;
         }
 

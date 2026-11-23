@@ -233,6 +233,18 @@ class DoctorTest {
     }
 
     @Test
+    void theRequestOverheadIsNamedBesideTheEndpoint() {
+        SiteConfig config = healthy(builder -> builder.ship(ShipSettings.builder()
+                .endpoint("https://collector.example.net/v1/ingest")
+                .requestOverheadBytes(6144)
+                .build()));
+        assertThat(Doctor.runChecks(config).findings())
+                .extracting(Finding::message)
+                .contains("shipping to https://collector.example.net/v1/ingest, 6KiB charged per request on top of each"
+                        + " batch");
+    }
+
+    @Test
     void aPlainHttpEndpointIsAWarning() {
         SiteConfig config = healthy(builder -> builder.ship(
                 ShipSettings.builder().endpoint("http://10.0.0.9/v1").build()));

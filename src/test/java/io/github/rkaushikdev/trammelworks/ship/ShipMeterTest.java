@@ -92,6 +92,21 @@ class ShipMeterTest {
     }
 
     @Test
+    void aRequestCostsItsBodyAndItsOverhead() {
+        Meter built = new Meter(1000, 1, Meter.DEFAULT_FLOORS, 120);
+        assertThat(built.requestOverhead()).isEqualTo(120);
+        assertThat(built.requestCost(300)).isEqualTo(420);
+        assertThat(new Meter(1000, 1).requestCost(300)).isEqualTo(300);
+    }
+
+    @Test
+    void aNegativeOverheadIsRefused() {
+        assertThatThrownBy(() -> new Meter(1000, 1, Meter.DEFAULT_FLOORS, -1))
+                .isInstanceOf(io.github.rkaushikdev.trammelworks.ShipError.class)
+                .hasMessageContaining("overhead");
+    }
+
+    @Test
     void chargingANegativeSizeIsRefused() {
         assertThatThrownBy(() -> meter().charge(-1))
                 .isInstanceOf(ShipError.class)
@@ -218,5 +233,12 @@ class ShipMeterTest {
         Meter built = meter();
         built.charge(250);
         assertThat(built.describe()).isEqualTo("meter 250/1000 bytes (25.0%) this period");
+    }
+
+    @Test
+    void describeNamesTheOverheadWhenThereIsOne() {
+        Meter built = new Meter(1000, 1, Meter.DEFAULT_FLOORS, 120);
+        built.charge(built.requestCost(130));
+        assertThat(built.describe()).isEqualTo("meter 250/1000 bytes (25.0%) this period, 120 per request");
     }
 }

@@ -149,7 +149,10 @@ public final class Shipper {
     private boolean sendBatches(SegmentInfo segment, List<Map<String, Object>> remaining, ShipReport report) {
         for (Batch batch : Batches.cut(site, remaining, limits, segment.name(), new BatchStats())) {
             int size = batch.wireBytes();
-            if (!meter.allows(size, segment.klass())) {
+            long needed = meter.requestCost(size);
+            if (!meter.allows(needed, segment.klass())) {
+                // Says what the request needed with its overhead, because "available 9000" beside
+                // a batch of 8000 reads as a meter bug until the 1500 of handshake is in the line.
                 report.blocked(segment.name());
                 metrics.incr("ship_meter_blocked");
                 events.warn(
@@ -158,6 +161,8 @@ public final class Shipper {
                         segment.name(),
                         "klass",
                         segment.klass(),
+                        "needed",
+                        needed,
                         "available",
                         meter.availableTo(segment.klass()));
                 return true;
@@ -177,7 +182,7 @@ public final class Shipper {
         Watermark mark = acks.marks().get(segment.name());
         mark.attempt();
         Response answer = transport.send(batch);
-        long cost = answer.bytesSent() != 0 ? answer.bytesSent() : size;
+        long cost = meter.requestCost(answer.bytesSent() != 0 ? answer.bytesSent() : size);
         meter.charge(cost);
         report.charged(cost);
         metrics.incr("ship_bytes", cost);
