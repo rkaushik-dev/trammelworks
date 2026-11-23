@@ -127,10 +127,7 @@ public final class Doctor {
             report.warn("redaction", "redaction is turned off on this site");
             return;
         }
-        Redactor redactor = new Redactor(
-                config.redact().rules(),
-                config.redact().keepFirst(),
-                config.redact().keepLast());
+        Redactor redactor = Redactor.of(config.redact());
         RedactionResult found = redactor.redactText("probe pan=" + PROBE_PAN);
         if (found.text().contains(PROBE_PAN)) {
             report.fail("redaction", "a known test card number survived the pass");

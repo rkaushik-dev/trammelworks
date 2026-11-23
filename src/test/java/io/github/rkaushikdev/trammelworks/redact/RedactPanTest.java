@@ -292,6 +292,30 @@ class RedactPanTest {
                 .hasMessageContaining("negative number of digits");
     }
 
+    @ParameterizedTest
+    @CsvSource({"13, 6", "15, 6", "16, 8", "19, 8"})
+    void anEightDigitHeadOnlyAppliesFromSixteenDigits(int digits, int head) {
+        assertThat(new PanMask(8, 4).headFor(digits)).isEqualTo(head);
+        assertThat(PanMask.STANDARD.headFor(digits)).isEqualTo(6);
+    }
+
+    @Test
+    void aMaskAskingForFewerThanSixKeepsWhatItAskedFor() {
+        assertThat(new PanMask(4, 4).headFor(19)).isEqualTo(4);
+        assertThat(new PanMask(4, 4).apply(VISA)).isEqualTo("4111********1111");
+    }
+
+    @Test
+    void aNineteenDigitFleetCardKeepsEight() {
+        assertThat(Pans.maskPans("card " + FLEET, new PanMask(8, 4))).isEqualTo("card 70832800*******0000");
+    }
+
+    @Test
+    void theMaskDescribesItself() {
+        assertThat(PanMask.STANDARD).hasToString("6+4");
+        assertThat(new PanMask(8, 4)).hasToString("8+4 (6+4 under 16 digits)");
+    }
+
     @Test
     void maskPansReplacesInPlace() {
         assertThat(Pans.maskPans("auth pan=" + VISA + " amount=4000"))

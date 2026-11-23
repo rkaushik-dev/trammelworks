@@ -139,10 +139,7 @@ final class RedactCommand implements Callable<Integer> {
         if (!config.redact().enabled()) {
             context.warn("redaction is disabled on this site, nothing was checked");
         }
-        Redactor redactor = new Redactor(
-                config.redact().rules(),
-                config.redact().keepFirst(),
-                config.redact().keepLast());
+        Redactor redactor = Redactor.of(config.redact());
         List<LineReport> reports = context.reporting(() -> runPass(redactor, lines));
         for (LineReport report : reports) {
             if (!quiet) {

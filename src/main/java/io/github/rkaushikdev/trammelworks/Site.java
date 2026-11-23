@@ -105,10 +105,7 @@ public final class Site {
         ledger.session(boot.bootId());
         this.observer = new SyncObserver(ledger, boot.bootId());
         this.reconciler = new Reconciler(ledger, boot.bootId(), clock);
-        this.redactor = new Redactor(
-                config.redact().rules(),
-                config.redact().keepFirst(),
-                config.redact().keepLast());
+        this.redactor = Redactor.of(config.redact());
         Map<String, MultilineRule> rules = new LinkedHashMap<>();
         for (MultilineRule rule : config.ingest().multiline()) {
             rules.put(rule.unit(), rule);

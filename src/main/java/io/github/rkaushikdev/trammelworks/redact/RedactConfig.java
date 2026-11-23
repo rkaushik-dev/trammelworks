@@ -17,7 +17,7 @@ import java.util.Set;
  * from a lab template.
  *
  * @param enabled whether the pass runs
- * @param keepFirst leading PAN digits kept, at most six
+ * @param keepFirst leading PAN digits kept, at most eight and only six below sixteen digits
  * @param keepLast trailing PAN digits kept, at most four
  * @param rules the site's own rules, in order
  */
@@ -37,15 +37,7 @@ public record RedactConfig(boolean enabled, int keepFirst, int keepLast, List<Ru
     /** Validates the keep lengths and the rule names. */
     public RedactConfig {
         rules = List.copyOf(rules);
-        if (keepFirst < 0 || keepLast < 0) {
-            throw new ConfigError("cannot keep a negative number of digits");
-        }
-        if (keepFirst > 6) {
-            throw new ConfigError("keeping more than six leading digits is not allowed", Integer.toString(keepFirst));
-        }
-        if (keepLast > 4) {
-            throw new ConfigError("keeping more than four trailing digits is not allowed", Integer.toString(keepLast));
-        }
+        new PanMask(keepFirst, keepLast);
         Set<String> names = new HashSet<>();
         for (Rule rule : rules) {
             if (!names.add(rule.name())) {
@@ -79,6 +71,11 @@ public record RedactConfig(boolean enabled, int keepFirst, int keepLast, List<Ru
         }
     }
 
+    /** What the card mask keeps on this site. */
+    public PanMask mask() {
+        return new PanMask(keepFirst, keepLast);
+    }
+
     /** The site rules' names, in order. */
     public List<String> ruleNames() {
         return rules.stream().map(Rule::name).toList();
@@ -86,7 +83,7 @@ public record RedactConfig(boolean enabled, int keepFirst, int keepLast, List<Ru
 
     /** A one line description, for the doctor command. */
     public static RedactSummary summarize(RedactConfig config) {
-        return new RedactSummary(config.enabled(), config.keepFirst(), config.keepLast(), config.ruleNames());
+        return new RedactSummary(config.enabled(), config.mask(), config.ruleNames());
     }
 
     /** Build the section, refusing anything it does not recognise. */

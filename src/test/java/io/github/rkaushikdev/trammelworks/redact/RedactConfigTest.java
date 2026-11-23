@@ -24,10 +24,31 @@ class RedactConfigTest {
     }
 
     @Test
-    void keepingMoreThanSixLeadingDigitsIsRefused() {
-        assertThatThrownBy(() -> new RedactConfig(true, 7, 4, List.of()))
+    void keepingMoreThanEightLeadingDigitsIsRefused() {
+        assertThatThrownBy(() -> new RedactConfig(true, 9, 4, List.of()))
                 .isInstanceOf(ConfigError.class)
-                .hasMessageContaining("more than six leading");
+                .hasMessageContaining("more than eight leading");
+    }
+
+    @Test
+    void anEightDigitBinHeadIsAllowed() {
+        RedactConfig built = new RedactConfig(true, 8, 4, List.of());
+        assertThat(built.mask()).isEqualTo(new PanMask(8, 4));
+        assertThat(built.mask().usesLongBin()).isTrue();
+    }
+
+    @Test
+    void keepingANegativeNumberIsRefused() {
+        assertThatThrownBy(() -> new RedactConfig(true, -1, 4, List.of()))
+                .isInstanceOf(ConfigError.class)
+                .hasMessageContaining("negative");
+    }
+
+    @Test
+    void theSummarySaysWhenShortCardsFallBackToSix() {
+        assertThat(RedactConfig.summarize(new RedactConfig(true, 8, 4, List.of()))
+                        .toString())
+                .isEqualTo("redaction on, keep 8+4 (6+4 under 16 digits), card rules only");
     }
 
     @Test

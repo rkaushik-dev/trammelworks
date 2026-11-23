@@ -89,6 +89,25 @@ class RedactEngineTest {
     }
 
     @Test
+    void anEightDigitHeadIsKeptOnASixteenDigitCard() {
+        RedactionResult found = new Redactor(List.of(), 8, 4).redactText("pan=" + VISA);
+        assertThat(found.text()).isEqualTo("pan=41111111****1111");
+    }
+
+    @Test
+    void anAmexFallsBackToSixWhenEightAreAskedFor() {
+        RedactionResult found = new Redactor(List.of(), new PanMask(8, 4)).redactText("pan=378282246310005");
+        assertThat(found.text()).isEqualTo("pan=378282*****0005");
+    }
+
+    @Test
+    void aPassBuiltFromConfigCarriesItsMask() {
+        Redactor built = Redactor.of(new RedactConfig(true, 8, 2, List.of()));
+        assertThat(built.mask()).isEqualTo(new PanMask(8, 2));
+        assertThat(new Redactor().mask()).isEqualTo(PanMask.STANDARD);
+    }
+
+    @Test
     void aRecordWithNothingToRemoveIsReturnedAsIs() {
         LogRecord original = record("nozzle 1 lifted");
         assertThat(new Redactor().redact(original)).isSameAs(original);

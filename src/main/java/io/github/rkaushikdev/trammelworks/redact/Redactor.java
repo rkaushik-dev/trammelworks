@@ -29,8 +29,7 @@ public final class Redactor {
     public static final String STRIPE_RULE = "card_stripe";
 
     private final List<Rule> rules;
-    private final int keepFirst;
-    private final int keepLast;
+    private final PanMask mask;
     private final RedactionAudit audit = new RedactionAudit();
 
     /** The card rules only, keeping six and four. */
@@ -40,19 +39,28 @@ public final class Redactor {
 
     /** The card rules and the site's own, keeping six and four. */
     public Redactor(List<Rule> rules) {
-        this(rules, Pans.KEEP_FIRST, Pans.KEEP_LAST);
+        this(rules, PanMask.STANDARD);
+    }
+
+    /** The card rules and the site's own, keeping the given digits where the length allows. */
+    public Redactor(List<Rule> rules, int keepFirst, int keepLast) {
+        this(rules, new PanMask(keepFirst, keepLast));
     }
 
     /** Everything given. */
-    public Redactor(List<Rule> rules, int keepFirst, int keepLast) {
+    public Redactor(List<Rule> rules, PanMask mask) {
         this.rules = List.copyOf(rules);
-        this.keepFirst = keepFirst;
-        this.keepLast = keepLast;
+        this.mask = mask;
     }
 
     /** A pass built from a site's redact section. */
     public static Redactor of(RedactConfig config) {
-        return new Redactor(config.rules(), config.keepFirst(), config.keepLast());
+        return new Redactor(config.rules(), config.mask());
+    }
+
+    /** What is left of a card number this pass masks. */
+    public PanMask mask() {
+        return mask;
     }
 
     /** What this pass has removed so far. */
@@ -70,7 +78,7 @@ public final class Redactor {
             stripes = Stripes.findSecrets(text).size();
             working = Stripes.stripSecrets(text);
             pans = Pans.findPans(working).size();
-            working = Pans.maskPans(working, keepFirst, keepLast);
+            working = Pans.maskPans(working, mask);
             for (Rule rule : rules) {
                 Rules.Applied applied = Rules.applyRule(rule, working);
                 working = applied.text();

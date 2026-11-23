@@ -167,13 +167,18 @@ public final class Pans {
         return maskPans(text, KEEP_FIRST, KEEP_LAST);
     }
 
-    /** Replace every card number in a line, keeping the given digits. */
+    /** Replace every card number in a line, keeping the given digits where the length allows. */
     public static String maskPans(String text, int keepFirst, int keepLast) {
+        return maskPans(text, new PanMask(keepFirst, keepLast));
+    }
+
+    /** Replace every card number in a line with what {@code mask} leaves of it. */
+    public static String maskPans(String text, PanMask mask) {
         StringBuilder out = new StringBuilder();
         int cursor = 0;
         for (PanMatch found : findPans(text)) {
             out.append(text, cursor, found.start());
-            out.append(maskDigits(found.digits(), keepFirst, keepLast));
+            out.append(mask.apply(found.digits()));
             cursor = found.end();
         }
         out.append(text.substring(cursor));
