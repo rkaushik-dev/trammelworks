@@ -7,7 +7,9 @@ import io.github.rkaushikdev.trammelworks.forecourt.AlarmSpan;
 import io.github.rkaushikdev.trammelworks.forecourt.Outcome;
 import io.github.rkaushikdev.trammelworks.forecourt.PumpState;
 import io.github.rkaushikdev.trammelworks.forecourt.PumpTimeline;
+import io.github.rkaushikdev.trammelworks.forecourt.StoreAndForward;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -23,6 +25,7 @@ import java.util.List;
  * @param unauthorised deliveries that started without an authorisation
  * @param alarmsStanding tank alarms raised and not cleared
  * @param environmentalStanding of those, the release detection alarms
+ * @param safDepth payments waiting in store and forward, as the kernel last reported
  */
 public record ForecourtSummary(
         long sales,
@@ -30,12 +33,13 @@ public record ForecourtSummary(
         long hostUnavailable,
         long unauthorised,
         long alarmsStanding,
-        long environmentalStanding)
+        long environmentalStanding,
+        long safDepth)
         implements SummarySection {
 
     /** Nothing counted yet. */
     public ForecourtSummary() {
-        this(0, 0, 0, 0, 0, 0);
+        this(0, 0, 0, 0, 0, 0, 0);
     }
 
     /**
@@ -43,20 +47,16 @@ public record ForecourtSummary(
      * raised last week and never cleared is still standing tonight.
      */
     public static ForecourtSummary fromRecords(List<StoredRecord> day, List<StoredRecord> alarms) {
-        long sales = 0;
-        long declines = 0;
-        long unavailable = 0;
-        for (StoredRecord record : day) {
-            if (PumpState.COMPLETED.value().equals(record.labels().get(PumpState.LABEL))) {
-                sales++;
-            }
-            String outcome = record.labels().get(Outcome.LABEL);
-            if (Outcome.DECLINED.value().equals(outcome)) {
-                declines++;
-            } else if (Outcome.HOST_UNAVAILABLE.value().equals(outcome)) {
-                unavailable++;
-            }
-        }
+        long sales = count(day, PumpState.LABEL, PumpState.COMPLETED.value());
+        long declines = count(day, Outcome.LABEL, Outcome.DECLINED.value());
+        long unavailable = count(day, Outcome.LABEL, Outcome.HOST_UNAVAILABLE.value());
+        // The last depth the kernel reported is the queue as it stands; an earlier, deeper one has
+        // since drained.
+        long safDepth = day.stream()
+                .filter(record -> record.labels().containsKey(StoreAndForward.LABEL))
+                .max(Comparator.comparing(StoredRecord::bestAt))
+                .map(record -> Long.parseLong(record.labels().get(StoreAndForward.LABEL)))
+                .orElse(0L);
         List<AlarmSpan> standing = AlarmLog.replay(alarms).open();
         long environmental = standing.stream()
                 .filter(span -> span.alarm().severity() == AlarmSeverity.ENVIRONMENTAL)
@@ -67,7 +67,14 @@ public record ForecourtSummary(
                 unavailable,
                 PumpTimeline.replay(day).unauthorised().size(),
                 standing.size(),
-                environmental);
+                environmental,
+                safDepth);
+    }
+
+    private static long count(List<StoredRecord> records, String label, String value) {
+        return records.stream()
+                .filter(record -> value.equals(record.labels().get(label)))
+                .count();
     }
 
     @Override
@@ -87,11 +94,15 @@ public record ForecourtSummary(
         if (hostUnavailable != 0) {
             found.add("the payment host did not answer " + hostUnavailable + " times");
         }
+        if (safDepth != 0) {
+            found.add(safDepth + " payments are still waiting in store and forward");
+        }
         return found;
     }
 
     @Override
     public String line() {
-        return sales + " sales, " + declines + " declines, " + alarmsStanding + " tank alarms standing";
+        String line = sales + " sales, " + declines + " declines, " + alarmsStanding + " tank alarms standing";
+        return safDepth == 0 ? line : line + ", " + safDepth + " in store and forward";
     }
 }

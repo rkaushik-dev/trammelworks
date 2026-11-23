@@ -56,8 +56,9 @@ public final class Tagger {
         });
     }
 
-    /** The pump the payment is for and what the host said about it. */
+    /** The pump the payment is for, what the host said about it, and how deep the offline queue is. */
     private static void payment(String message, Map<String, String> found) {
+        StoreAndForward.depth(message).ifPresent(depth -> found.put(StoreAndForward.LABEL, Long.toString(depth)));
         FuellingPoint.find(message).ifPresent(point -> found.put(FuellingPoint.LABEL, point));
         ResponseCode.find(message).ifPresent(code -> {
             found.put(ResponseCode.LABEL, code.code());

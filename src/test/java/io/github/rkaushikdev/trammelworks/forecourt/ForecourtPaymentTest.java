@@ -72,6 +72,29 @@ class ForecourtPaymentTest {
         assertThat(new Tagger(new ForecourtConfig()).tag(line)).isSameAs(line);
     }
 
+    @ParameterizedTest
+    @CsvSource({
+        "'SAF depth 14 oldest 2025-03-04T06:10:00Z', 14",
+        "'saf_pending=3', 3",
+        "'store and forward queue: 0', 0",
+        "'saf queue depth=120 uploading', 120"
+    })
+    void theStoreAndForwardDepthIsRead(String line, long depth) {
+        assertThat(StoreAndForward.depth(line)).contains(depth);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"SAF upload ok", "safe depth 4", "saf depth", "SAF depth 1234567"})
+    void aLineWithoutAQueueDepthHasNone(String line) {
+        assertThat(StoreAndForward.depth(line)).isEmpty();
+    }
+
+    @Test
+    void aPaymentLineGainsTheQueueDepth() {
+        LogRecord tagged = new Tagger(new ForecourtConfig()).tag(payment("host down, SAF depth 7 rc=91"));
+        assertThat(tagged.labels()).containsEntry("saf_depth", "7").containsEntry("outcome", "host_unavailable");
+    }
+
     @Test
     void anOutcomeIsFoundByItsLabelValue() {
         assertThat(Outcome.fromValue("host_unavailable")).contains(Outcome.HOST_UNAVAILABLE);

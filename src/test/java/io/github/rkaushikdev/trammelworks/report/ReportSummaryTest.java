@@ -305,26 +305,47 @@ class ReportSummaryTest {
                 stored("10:05:20", Map.of("pump", "2", "pump_state", "fuelling")),
                 stored("10:06:00", Map.of("outcome", "declined", "response", "51")),
                 stored("10:07:00", Map.of("outcome", "host_unavailable", "response", "91")),
-                stored("10:08:00", Map.of("outcome", "approved", "response", "00")));
+                stored("10:08:00", Map.of("outcome", "approved", "response", "00")),
+                stored("10:09:00", Map.of("saf_depth", "9")),
+                stored("10:30:00", Map.of("saf_depth", "3")));
         List<StoredRecord> alarms = List.of(
                 stored("01:00:00", Map.of("tank", "1", "alarm", "sudden_loss", "alarm_state", "active")),
                 stored("02:00:00", Map.of("tank", "2", "alarm", "high_water", "alarm_state", "active")),
                 stored("03:00:00", Map.of("tank", "3", "alarm", "leak", "alarm_state", "active")),
                 stored("03:30:00", Map.of("tank", "3", "alarm", "leak", "alarm_state", "clear")));
         ForecourtSummary found = ForecourtSummary.fromRecords(day, alarms);
-        assertThat(found).isEqualTo(new ForecourtSummary(1, 1, 1, 1, 2, 1));
+        assertThat(found).isEqualTo(new ForecourtSummary(1, 1, 1, 1, 2, 1, 3));
         assertThat(found.healthy()).isFalse();
         assertThat(found.problems())
                 .containsExactly(
                         "1 environmental tank alarms are standing",
                         "1 deliveries started without an authorisation",
-                        "the payment host did not answer 1 times");
-        assertThat(found.line()).isEqualTo("1 sales, 1 declines, 2 tank alarms standing");
+                        "the payment host did not answer 1 times",
+                        "3 payments are still waiting in store and forward");
+        assertThat(found.line()).isEqualTo("1 sales, 1 declines, 2 tank alarms standing, 3 in store and forward");
+    }
+
+    @Test
+    void aDrainedQueueIsNotAProblem() {
+        ForecourtSummary found = ForecourtSummary.fromRecords(
+                List.of(stored("09:00:00", Map.of("saf_depth", "12")), stored("11:00:00", Map.of("saf_depth", "0"))),
+                List.of());
+        assertThat(found.safDepth()).isZero();
+        assertThat(found.problems()).isEmpty();
+        assertThat(found.line()).isEqualTo("0 sales, 0 declines, 0 tank alarms standing");
+    }
+
+    @Test
+    void aQueueStillDeepIsAProblemButNotAnAttention() {
+        Summary built = healthy();
+        built.forecourt(new ForecourtSummary(10, 0, 0, 0, 0, 0, 4));
+        assertThat(built.check()).containsExactly("4 payments are still waiting in store and forward");
+        assertThat(built.forecourt().healthy()).isTrue();
     }
 
     @Test
     void aStandingHighWaterAlarmIsNotAProblem() {
-        ForecourtSummary found = new ForecourtSummary(40, 3, 0, 0, 1, 0);
+        ForecourtSummary found = new ForecourtSummary(40, 3, 0, 0, 1, 0, 0);
         assertThat(found.healthy()).isTrue();
         assertThat(found.problems()).isEmpty();
     }
@@ -332,7 +353,7 @@ class ReportSummaryTest {
     @Test
     void aStandingLeakTurnsTheSummaryToAttention() {
         Summary built = healthy();
-        built.forecourt(new ForecourtSummary(10, 0, 0, 0, 1, 1));
+        built.forecourt(new ForecourtSummary(10, 0, 0, 0, 1, 1, 0));
         assertThat(built.healthy()).isFalse();
         assertThat(built.renderText())
                 .contains("ATTENTION")
