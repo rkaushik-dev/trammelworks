@@ -40,6 +40,7 @@ public final class Tagger {
             case DISPENSER -> dispenser(message, found);
             case PAYMENT -> payment(message, found);
             case TANK_GAUGE -> tankGauge(message, found);
+            case PRICE_SIGN -> price(message, found);
             default -> {}
         }
         return found;
@@ -53,6 +54,15 @@ public final class Tagger {
         FuellingPoint.find(message).ifPresent(point -> {
             found.put(FuellingPoint.LABEL, point);
             PumpState.find(message).ifPresent(state -> found.put(PumpState.LABEL, state.value()));
+            price(message, found);
+        });
+    }
+
+    /** The grade and the price a sign or a dispenser line sets. */
+    private static void price(String message, Map<String, String> found) {
+        FuelPrice.read(message).ifPresent(reading -> {
+            found.put(Grade.LABEL, reading.grade().value());
+            found.put(FuelPrice.LABEL, reading.written());
         });
     }
 

@@ -40,6 +40,7 @@ import picocli.CommandLine.ParentCommand;
             HoldCommands.Sweep.class,
             IngestCommands.Discover.class,
             IngestCommands.Tail.class,
+            PricesCommand.class,
             QueryCommand.class,
             RedactCommand.class,
             ReportCommands.Report.class,

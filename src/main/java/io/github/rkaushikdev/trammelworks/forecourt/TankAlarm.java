@@ -95,12 +95,7 @@ public enum TankAlarm implements Json.Valued {
 
     /** The alarm with this label value. */
     public static Optional<TankAlarm> fromValue(String raw) {
-        for (TankAlarm alarm : values()) {
-            if (alarm.value.equals(raw)) {
-                return Optional.of(alarm);
-            }
-        }
-        return Optional.empty();
+        return Json.Valued.lookup(TankAlarm.class, raw);
     }
 
     /**

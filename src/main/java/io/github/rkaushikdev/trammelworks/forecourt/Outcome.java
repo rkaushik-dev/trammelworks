@@ -32,12 +32,7 @@ public enum Outcome implements Json.Valued {
 
     /** The outcome with this label value. */
     public static Optional<Outcome> fromValue(String raw) {
-        for (Outcome outcome : values()) {
-            if (outcome.value.equals(raw)) {
-                return Optional.of(outcome);
-            }
-        }
-        return Optional.empty();
+        return Json.Valued.lookup(Outcome.class, raw);
     }
 
     @Override

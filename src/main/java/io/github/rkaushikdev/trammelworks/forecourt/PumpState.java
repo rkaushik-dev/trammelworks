@@ -77,12 +77,7 @@ public enum PumpState implements Json.Valued {
 
     /** The state with this label value. */
     public static Optional<PumpState> fromValue(String raw) {
-        for (PumpState state : values()) {
-            if (state.value.equals(raw)) {
-                return Optional.of(state);
-            }
-        }
-        return Optional.empty();
+        return Json.Valued.lookup(PumpState.class, raw);
     }
 
     /** The first state a line reports. */

@@ -37,13 +37,8 @@ public enum Role implements Json.Valued {
 
     /** The role spelt this way, ignoring case and surrounding space. */
     public static Role parse(String raw) {
-        String cleaned = Text.strip(raw).toLowerCase(Locale.ROOT);
-        for (Role role : values()) {
-            if (role.value.equals(cleaned)) {
-                return role;
-            }
-        }
-        throw new ConfigError("unknown forecourt role", raw);
+        return Json.Valued.lookup(Role.class, Text.strip(raw).toLowerCase(Locale.ROOT))
+                .orElseThrow(() -> new ConfigError("unknown forecourt role", raw));
     }
 
     @Override

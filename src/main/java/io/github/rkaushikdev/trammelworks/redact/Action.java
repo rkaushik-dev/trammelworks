@@ -22,12 +22,7 @@ public enum Action implements Json.Valued {
 
     /** The action spelt this way, if there is one. */
     public static java.util.Optional<Action> fromValue(String raw) {
-        for (Action action : values()) {
-            if (action.value.equals(raw)) {
-                return java.util.Optional.of(action);
-            }
-        }
-        return java.util.Optional.empty();
+        return Json.Valued.lookup(Action.class, raw);
     }
 
     @Override

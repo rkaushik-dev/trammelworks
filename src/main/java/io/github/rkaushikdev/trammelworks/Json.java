@@ -286,6 +286,20 @@ public final class Json {
     public interface Valued {
         /** The string written for this member. */
         String value();
+
+        /**
+         * The member of {@code type} whose value is exactly {@code raw}. Exactly: a label value or
+         * a config word is read back the way it was written, and the callers that forgive case or
+         * padding clean the text first and say so.
+         */
+        static <E extends Enum<E> & Valued> java.util.Optional<E> lookup(Class<E> type, String raw) {
+            for (E member : type.getEnumConstants()) {
+                if (member.value().equals(raw)) {
+                    return java.util.Optional.of(member);
+                }
+            }
+            return java.util.Optional.empty();
+        }
     }
 
     /** Raised when text does not decode, or a value cannot be encoded. */

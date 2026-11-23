@@ -22,13 +22,8 @@ public enum Stream implements Json.Valued {
 
     /** Read a stream name, forgiving case and padding. */
     public static Stream parse(String raw) {
-        String cleaned = Text.strip(raw).toLowerCase(Locale.ROOT);
-        for (Stream member : values()) {
-            if (member.value.equals(cleaned)) {
-                return member;
-            }
-        }
-        throw new IllegalArgumentException("unknown stream " + Repr.of(raw));
+        return Json.Valued.lookup(Stream.class, Text.strip(raw).toLowerCase(Locale.ROOT))
+                .orElseThrow(() -> new IllegalArgumentException("unknown stream " + Repr.of(raw)));
     }
 
     @Override
