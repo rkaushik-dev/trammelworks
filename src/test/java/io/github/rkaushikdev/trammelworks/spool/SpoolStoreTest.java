@@ -57,6 +57,17 @@ class SpoolStoreTest {
     }
 
     @Test
+    void anEnvironmentalAlarmFromAChatterUnitGoesToThePaymentClass() {
+        Spool store = builder()
+                .table(new PriorityTable(Map.of("tank-gauge", "chatter")))
+                .build();
+        LogRecord leak = record("tank-gauge", "T 1:LEAK ALARM").withLabel("alarm_severity", "environmental");
+        assertThat(store.append(leak).klass()).isEqualTo("payment");
+        assertThat(store.append(record("tank-gauge", "T 1: volume 31200 ml")).klass())
+                .isEqualTo("chatter");
+    }
+
+    @Test
     void twoClassesGetSeparateSegments() {
         Spool store = spool();
         store.append(record("payment-kernel", "x"));

@@ -4,7 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.rkaushikdev.trammelworks.ConfigError;
+import io.github.rkaushikdev.trammelworks.LogRecord;
 import io.github.rkaushikdev.trammelworks.Maps;
+import io.github.rkaushikdev.trammelworks.NanoTime;
+import io.github.rkaushikdev.trammelworks.Stream;
+import io.github.rkaushikdev.trammelworks.forecourt.AlarmSeverity;
+import io.github.rkaushikdev.trammelworks.forecourt.TankAlarm;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -174,6 +179,88 @@ class SpoolPriorityTest {
         assertThatThrownBy(() -> PriorityTable.tableFromMapping(Map.of("units", List.of("payment-kernel"))))
                 .isInstanceOf(ConfigError.class)
                 .hasMessageContaining("assignments must be a mapping");
+    }
+
+    static LogRecord gauge(Map<String, String> labels) {
+        return new LogRecord(
+                        "US-TX-0417",
+                        "tank-gauge",
+                        Stream.STDOUT,
+                        NanoTime.parse("2025-03-04T12:00:00Z"),
+                        "T 1:LEAK ALARM")
+                .withLabels(labels);
+    }
+
+    @Test
+    void anEnvironmentalAlarmIsPromotedIntoThePaymentClass() {
+        PriorityTable table = new PriorityTable(Map.of("tank-gauge", "chatter"));
+        assertThat(table.classFor(gauge(Map.of("alarm_severity", "environmental")))
+                        .name())
+                .isEqualTo("payment");
+        assertThat(table.classFor(gauge(Map.of("alarm_severity", "operational")))
+                        .name())
+                .isEqualTo("chatter");
+        assertThat(table.classFor(gauge(Map.of())).name()).isEqualTo("chatter");
+    }
+
+    @Test
+    void theDefaultPromotionGoesToTheHeaviestProtectedClass() {
+        List<PriorityClass> classes = List.of(
+                new PriorityClass("card", 90, true),
+                new PriorityClass("site", 120, true),
+                new PriorityClass("rest", 5));
+        assertThat(PriorityTable.defaultPromotions(classes))
+                .containsExactly(new Promotion("alarm_severity", "environmental", "site"));
+    }
+
+    @Test
+    void aTableWithNoProtectedClassPromotesNothing() {
+        PriorityTable table = new PriorityTable(List.of(new PriorityClass("only", 5)), Map.of(), "only");
+        assertThat(table.promotions()).isEmpty();
+        assertThat(table.classFor(gauge(Map.of("alarm_severity", "environmental")))
+                        .name())
+                .isEqualTo("only");
+    }
+
+    @Test
+    void theSpoolsSeverityLabelIsTheOneTheTaggerWrites() {
+        assertThat(PriorityTable.SEVERITY_LABEL).isEqualTo(TankAlarm.SEVERITY_LABEL);
+        assertThat(PriorityTable.ENVIRONMENTAL).isEqualTo(AlarmSeverity.ENVIRONMENTAL.value());
+    }
+
+    @Test
+    void aSiteWritesItsOwnPromotions() {
+        PriorityTable table = PriorityTable.tableFromMapping(
+                Maps.of("units", Map.of("tank-gauge", "chatter"), "promote", Map.of("alarm = overfill", "standard")));
+        assertThat(table.promotions()).containsExactly(new Promotion("alarm", "overfill", "standard"));
+        assertThat(table.promotions().get(0).key()).isEqualTo("alarm=overfill");
+        assertThat(table.classFor(gauge(Map.of("alarm", "overfill"))).name()).isEqualTo("standard");
+        assertThat(table.classFor(gauge(Map.of("alarm_severity", "environmental")))
+                        .name())
+                .isEqualTo("chatter");
+    }
+
+    @Test
+    void aPromotionIntoAnUnknownClassIsRefused() {
+        assertThatThrownBy(() -> PriorityTable.tableFromMapping(Map.of("promote", Map.of("alarm=leak", "urgent"))))
+                .isInstanceOf(ConfigError.class)
+                .hasMessageContaining("unknown class");
+    }
+
+    @Test
+    void aMalformedPromotionIsRefused() {
+        assertThatThrownBy(() -> Promotion.parse("alarm", "payment"))
+                .isInstanceOf(ConfigError.class)
+                .hasMessageContaining("label=value");
+        assertThatThrownBy(() -> Promotion.parse("alarm=", "payment")).isInstanceOf(ConfigError.class);
+        assertThatThrownBy(() -> new Promotion("", "x", "payment")).isInstanceOf(ConfigError.class);
+    }
+
+    @Test
+    void anUnknownPriorityKeySuggestsTheRealOne() {
+        assertThatThrownBy(() -> PriorityTable.tableFromMapping(Map.of("promotes", Map.of())))
+                .isInstanceOf(ConfigError.class)
+                .hasMessageContaining("did you mean promote");
     }
 
     @Test

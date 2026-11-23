@@ -90,7 +90,7 @@ public final class Repository {
                 Identity.recordKey(record),
                 record.site(),
                 record.unit(),
-                table.classFor(record.unit()).name(),
+                table.classFor(record).name(),
                 record.stream().value(),
                 record.observedAt().epochNs(),
                 record.correctedAt().map(NanoTime::epochNs).orElse(null),

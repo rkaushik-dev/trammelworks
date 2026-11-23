@@ -120,7 +120,7 @@ public final class Spool {
 
     /** Frame a record and write it into its class's segment. */
     public Receipt append(LogRecord record) {
-        PriorityClass klass = table.classFor(record.unit());
+        PriorityClass klass = table.classFor(record);
         byte[] frame = Frames.encodeFrame(record.asDict(), compress);
         makeRoom(frame.length);
         SegmentWriter writer = writerFor(klass.name());

@@ -46,6 +46,12 @@ public enum TankAlarm implements Json.Valued {
     /** The label carrying whether the alarm is starting or ending. */
     public static final String STATE_LABEL = "alarm_state";
 
+    /**
+     * The label carrying how serious the alarm is. The spool's default promotion reads it, which is
+     * why it is spelt out on the record rather than looked up from the alarm.
+     */
+    public static final String SEVERITY_LABEL = "alarm_severity";
+
     /** The label carrying the tank. */
     public static final String TANK_LABEL = "tank";
 

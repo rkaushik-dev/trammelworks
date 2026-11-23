@@ -296,6 +296,21 @@ class SiteTest {
     }
 
     @Test
+    void aLeakFromAChatterGaugeIsSpooledAndArchivedAsPayment() {
+        SpoolSettings spool = SiteFixtures.spool(tmp)
+                .priority(new PriorityTable(Map.of("tank-gauge", "chatter")))
+                .build();
+        tree.writeCri("tank-gauge", List.of(criFull(TS, "T 1:SUDDEN LOSS ALARM")));
+        Site site = build(new MemoryTransport(), builder -> builder.spool(spool));
+        site.open();
+        site.collect();
+        site.spool().sealAll();
+        assertThat(SiteFixtures.segments(tmp.resolve("spool")))
+                .allMatch(path -> path.getFileName().toString().contains("payment"));
+        assertThat(archivedOnTheDay(site)).extracting(StoredRecord::klass).containsExactly("payment");
+    }
+
+    @Test
     void aLabSiteMayRunWithRedactionOff() {
         tree.writeCri("payment-kernel", List.of(criFull(TS, "pan=" + VISA)));
         SiteConfig config = SiteFixtures.config(tree, tmp).build();

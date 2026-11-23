@@ -3,6 +3,7 @@ package io.github.rkaushikdev.trammelworks.spool;
 import io.github.rkaushikdev.trammelworks.Coerce;
 import io.github.rkaushikdev.trammelworks.ConfigError;
 import io.github.rkaushikdev.trammelworks.Identity;
+import io.github.rkaushikdev.trammelworks.LogRecord;
 import io.github.rkaushikdev.trammelworks.Maps;
 import io.github.rkaushikdev.trammelworks.Sections;
 import java.util.ArrayList;
@@ -13,7 +14,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.TreeSet;
 
 /**
  * The classes on this site and which unit is in which.
@@ -23,11 +23,17 @@ import java.util.TreeSet;
  * Ordering is by weight, high first, and two classes may not share a weight, because "which of
  * these goes first" would then depend on the order somebody wrote the config in.
  *
+ * <p>A record can also be promoted out of its unit's class by a label it carries. By default an
+ * environmental tank alarm is promoted into the heaviest protected class, so a leak report is never
+ * evicted however full the spool gets.
+ *
  * @param classes every class on the site
  * @param assignments unit name to class name
  * @param defaultClass the class of any unit not assigned
+ * @param promotions labels that lift a record into a class, the first match winning
  */
-public record PriorityTable(List<PriorityClass> classes, Map<String, String> assignments, String defaultClass) {
+public record PriorityTable(
+        List<PriorityClass> classes, Map<String, String> assignments, String defaultClass, List<Promotion> promotions) {
 
     /** The class an unassigned unit lands in. */
     public static final String DEFAULT_CLASS = "standard";
@@ -38,7 +44,13 @@ public record PriorityTable(List<PriorityClass> classes, Map<String, String> ass
             new PriorityClass("standard", 50),
             new PriorityClass("chatter", 10));
 
-    static final Set<String> KEYS = Set.of("classes", "units", "default");
+    /** The label carrying how serious a tank alarm is. */
+    public static final String SEVERITY_LABEL = "alarm_severity";
+
+    /** The severity whose records the default promotion lifts. */
+    public static final String ENVIRONMENTAL = "environmental";
+
+    static final Set<String> KEYS = Set.of("classes", "units", "default", "promote");
 
     /** Validates the classes and normalizes the assignments. */
     public PriorityTable {
@@ -64,6 +76,17 @@ public record PriorityTable(List<PriorityClass> classes, Map<String, String> ass
             cleaned.put(Identity.parseUnit(entry.getKey()), entry.getValue());
         }
         assignments = Maps.frozen(cleaned);
+        promotions = List.copyOf(promotions);
+        for (Promotion promotion : promotions) {
+            if (!names.contains(promotion.klass())) {
+                throw new ConfigError("a promotion names an unknown class", promotion.klass());
+            }
+        }
+    }
+
+    /** A table with the default promotion for its classes. */
+    public PriorityTable(List<PriorityClass> classes, Map<String, String> assignments, String defaultClass) {
+        this(classes, assignments, defaultClass, defaultPromotions(classes));
     }
 
     /** The built in classes with no assignments. */
@@ -86,9 +109,31 @@ public record PriorityTable(List<PriorityClass> classes, Map<String, String> ass
         throw new ConfigError("unknown priority class", name);
     }
 
+    /**
+     * Environmental alarms into the heaviest protected class, when the table has one. A site with
+     * no protected class has said nothing is to be kept at all costs, and is taken at its word.
+     */
+    public static List<Promotion> defaultPromotions(List<PriorityClass> classes) {
+        return classes.stream()
+                .filter(PriorityClass::isProtected)
+                .max(Comparator.comparingInt(PriorityClass::weight))
+                .map(top -> List.of(new Promotion(SEVERITY_LABEL, ENVIRONMENTAL, top.name())))
+                .orElse(List.of());
+    }
+
     /** Which class a unit's records belong to. */
     public PriorityClass classFor(String unit) {
         return byName(assignments.getOrDefault(unit, defaultClass));
+    }
+
+    /** Which class this record belongs to: a promotion it matches, otherwise its unit's class. */
+    public PriorityClass classFor(LogRecord record) {
+        for (Promotion promotion : promotions) {
+            if (promotion.matches(record)) {
+                return byName(promotion.klass());
+            }
+        }
+        return classFor(record.unit());
     }
 
     /** Class names, highest weight first. */
@@ -126,11 +171,7 @@ public record PriorityTable(List<PriorityClass> classes, Map<String, String> ass
 
     /** Build the table from the config section. */
     public static PriorityTable tableFromMapping(Map<String, ?> raw) {
-        TreeSet<String> unknown = new TreeSet<>(raw.keySet());
-        unknown.removeAll(KEYS);
-        if (!unknown.isEmpty()) {
-            throw new ConfigError("unknown priority key", String.join(", ", unknown));
-        }
+        Sections.checkKeys(raw, KEYS, "priority");
         Object classesRaw = raw.get("classes");
         List<PriorityClass> classes;
         if (classesRaw == null) {
@@ -153,6 +194,13 @@ public record PriorityTable(List<PriorityClass> classes, Map<String, String> ass
         Map<String, String> assignments = new LinkedHashMap<>();
         units.forEach((unit, klass) -> assignments.put(unit, Coerce.text(klass)));
         Object fallback = raw.containsKey("default") ? raw.get("default") : DEFAULT_CLASS;
-        return new PriorityTable(classes, assignments, Coerce.text(fallback));
+        if (!raw.containsKey("promote")) {
+            return new PriorityTable(classes, assignments, Coerce.text(fallback));
+        }
+        Map<String, Object> written =
+                Sections.mapping(raw.get("promote"), "priority promotions must be a mapping", null);
+        List<Promotion> promotions = new ArrayList<>();
+        written.forEach((key, klass) -> promotions.add(Promotion.parse(key, Coerce.text(klass))));
+        return new PriorityTable(classes, assignments, Coerce.text(fallback), promotions);
     }
 }

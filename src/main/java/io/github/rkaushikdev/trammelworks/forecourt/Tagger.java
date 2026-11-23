@@ -71,6 +71,7 @@ public final class Tagger {
             found.put(TankAlarm.TANK_LABEL, reading.tank());
             found.put(TankAlarm.LABEL, reading.alarm().value());
             found.put(TankAlarm.STATE_LABEL, reading.state());
+            found.put(TankAlarm.SEVERITY_LABEL, reading.alarm().severity().value());
         });
     }
 

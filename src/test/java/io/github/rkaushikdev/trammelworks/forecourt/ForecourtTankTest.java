@@ -82,7 +82,8 @@ class ForecourtTankTest {
                         .labels())
                 .containsEntry("tank", "1")
                 .containsEntry("alarm", "sudden_loss")
-                .containsEntry("alarm_state", "active");
+                .containsEntry("alarm_state", "active")
+                .containsEntry("alarm_severity", "environmental");
     }
 
     @Test
