@@ -102,6 +102,73 @@ class RedactTrackTest {
         assertThat(line.substring(found.start(), found.end())).isEqualTo("123");
     }
 
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "cardholder=SMITH/JOHN",
+                "CARDHOLDER_NAME: SMITH/JOHN MR",
+                "chname=\"John Smith\"",
+                "card_name=OBRIEN"
+            })
+    void aCardholderNameIsFoundByItsKey(String line) {
+        List<SecretMatch> found = Stripes.findKeyedSecrets(line);
+        assertThat(found).hasSize(1);
+        assertThat(found.get(0).kind()).isSameAs(SecretKind.CARDHOLDER_NAME);
+    }
+
+    @Test
+    void aStripeShapedNameIsTakenWhole() {
+        assertThat(Stripes.stripSecrets("auth cardholder: SMITH/JOHN MR approved"))
+                .isEqualTo("auth cardholder: [redacted] approved");
+    }
+
+    @Test
+    void aQuotedNameIsTakenWithItsSpaces() {
+        assertThat(Stripes.stripSecrets("chname=\"Mary Ann O'Neil\" rc=00")).isEqualTo("chname=\"[redacted]\" rc=00");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"driver_pin=4821", "FLEET_PIN: 004821", "dpin = 98765432"})
+    void aFleetDriverPinIsFoundByItsKey(String line) {
+        List<SecretMatch> found = Stripes.findKeyedSecrets(line);
+        assertThat(found).hasSize(1);
+        assertThat(found.get(0).kind()).isSameAs(SecretKind.FLEET_PIN);
+    }
+
+    @Test
+    void aFleetPinOfThreeDigitsIsNotAPin() {
+        assertThat(Stripes.findKeyedSecrets("driver_pin=482")).isEmpty();
+    }
+
+    @Test
+    void aKeyInsideALongerWordIsNotThatKey() {
+        assertThat(Stripes.findKeyedSecrets("acid=123 pump_cvv=456")).isEmpty();
+    }
+
+    @Test
+    void keyedSecretsComeBackInLineOrder() {
+        assertThat(Stripes.findKeyedSecrets("driver_pin=4821 cvv=123 pinblock=1A2B3C4D5E6F7081"))
+                .extracting(SecretMatch::kind)
+                .containsExactly(SecretKind.FLEET_PIN, SecretKind.CARD_CODE, SecretKind.PIN_BLOCK);
+    }
+
+    @Test
+    void everyKindFoundByKeyIsInTheTable() {
+        assertThat(Stripes.KEYED)
+                .extracting(KeyedSecret::kind)
+                .containsExactly(
+                        SecretKind.PIN_BLOCK, SecretKind.CARD_CODE, SecretKind.CARDHOLDER_NAME, SecretKind.FLEET_PIN);
+        assertThat(Stripes.KEYED.get(3).keys()).contains("driver_pin");
+        assertThat(Stripes.KEYED.get(3).pattern().matcher("dpin=1234").find()).isTrue();
+    }
+
+    @Test
+    void aKeyedSecretNeedsAKey() {
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                        () -> new KeyedSecret(SecretKind.CARD_CODE, List.of(), KeyedSecret.HEX))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
     @Test
     void sixteenHexCharactersWithoutAKeyAreLeftAlone() {
         assertThat(Stripes.findKeyedSecrets("container 1a2b3c4d5e6f7081 started"))

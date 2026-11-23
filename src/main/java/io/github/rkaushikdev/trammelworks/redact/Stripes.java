@@ -3,8 +3,6 @@ package io.github.rkaushikdev.trammelworks.redact;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Locale;
-import java.util.Set;
 import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -19,9 +17,9 @@ import java.util.regex.Pattern;
  * sentinels, and the PAN part still has to pass the usual tests, which stops an equals sign in a
  * config dump being read as a stripe.
  *
- * <p>PIN blocks and card codes are found by their key name rather than their shape: sixteen hex
- * characters is also what half the identifiers on the box look like. If a line does not say what
- * the value is, we do not guess.
+ * <p>PIN blocks, card codes, cardholder names and fleet driver PINs are found by their key name
+ * rather than their shape, from the {@link #KEYED} table: sixteen hex characters is also what half
+ * the identifiers on the box look like. If a line does not say what the value is, we do not guess.
  */
 public final class Stripes {
 
@@ -30,21 +28,29 @@ public final class Stripes {
     static final Pattern TRACK1 = Pattern.compile("%[A-Z]\\d{12,19}\\^[^^]{0,30}\\^\\d{4}[^?]{0,60}\\??", FLAGS);
     static final Pattern TRACK2_SENTINEL = Pattern.compile(";(\\d{12,19})=(\\d{4}[0-9A-Za-z]{0,50})\\??", FLAGS);
     static final Pattern TRACK2_BARE = Pattern.compile("(?<!\\d)(\\d{12,19})=(\\d{4}\\d{0,50})(?!\\d)", FLAGS);
-    static final Pattern KEYED_SECRETS = Pattern.compile(
-            "(?i)\\b(pin_?block|pinblk|encrypted_?pin|cvv2?|cvc2?|cid|cav2?|csc)"
-                    + "\\s*[=:]\\s*(\"?)([0-9A-Fa-f]{3,32})\\2",
-            FLAGS);
+
+    /** Every secret found by its key, and the keys a forecourt prints it under. */
+    public static final List<KeyedSecret> KEYED = List.of(
+            new KeyedSecret(
+                    SecretKind.PIN_BLOCK,
+                    List.of("pin_block", "pinblock", "pinblk", "encrypted_pin", "encryptedpin"),
+                    KeyedSecret.HEX),
+            new KeyedSecret(
+                    SecretKind.CARD_CODE,
+                    List.of("cvv", "cvv2", "cvc", "cvc2", "cid", "cav", "cav2", "csc"),
+                    KeyedSecret.HEX),
+            new KeyedSecret(
+                    SecretKind.CARDHOLDER_NAME,
+                    List.of("cardholder", "cardholder_name", "chname", "card_name"),
+                    KeyedSecret.NAME),
+            // The PIN a fleet driver keys at the dispenser prompt. It is not a card PIN, but it
+            // is what stops a stolen fleet card from fuelling a stranger's truck.
+            new KeyedSecret(SecretKind.FLEET_PIN, List.of("driver_pin", "fleet_pin", "dpin"), "\\d{4,8}"));
 
     /** What a removed secret becomes. */
     public static final String REPLACEMENT = "[redacted]";
 
-    static final Set<String> PIN_KEYS = Set.of("pin_block", "pinblock", "pinblk", "encrypted_pin", "encryptedpin");
-
     private Stripes() {}
-
-    private static SecretKind kindForKey(String key) {
-        return PIN_KEYS.contains(key.toLowerCase(Locale.ROOT)) ? SecretKind.PIN_BLOCK : SecretKind.CARD_CODE;
-    }
 
     /** Every finder the stripe pass runs, in the order they were written. */
     static final List<Function<String, List<SecretMatch>>> FINDERS =
@@ -85,12 +91,11 @@ public final class Stripes {
         return found;
     }
 
-    /** PIN blocks and card codes, found by the name beside them. */
+    /** Everything in the {@link #KEYED} table, found by the name beside it, in line order. */
     public static List<SecretMatch> findKeyedSecrets(String text) {
-        return KEYED_SECRETS
-                .matcher(text)
-                .results()
-                .map(match -> new SecretMatch(match.start(3), match.end(3), kindForKey(match.group(1)), match.group(3)))
+        return KEYED.stream()
+                .flatMap(secret -> secret.find(text).stream())
+                .sorted(Comparator.comparingInt(SecretMatch::start))
                 .toList();
     }
 

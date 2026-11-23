@@ -12,6 +12,10 @@ public enum SecretKind implements Json.Valued {
     PIN_BLOCK("pin_block"),
     /** A card verification code, found by its key. */
     CARD_CODE("card_code"),
+    /** A cardholder's name, found by its key. */
+    CARDHOLDER_NAME("cardholder_name"),
+    /** The PIN a fleet driver keys at the dispenser prompt, found by its key. */
+    FLEET_PIN("fleet_pin"),
     /** The value of a cardholder data tag inside an EMV TLV dump. */
     EMV_TAG("emv_tag");
 
